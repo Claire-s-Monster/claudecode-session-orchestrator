@@ -226,3 +226,32 @@ debug_*.log
 
 # Claude Code session data
 .claude/
+# Development artifacts to exclude from clean branch
+.claude/
+.taskmaster/
+.recovery/
+logs/
+quality-config/
+quality-reports/
+*.log
+*-report*.md
+META-*.md
+LIVE_TEST_*.md
+SESSION_*.md
+agent-ecosystem-*.md
+claudecode-*.md
+function-library-*.md
+status-checker-*.md
+test_*.md
+metadata_test.txt
+pixi.toml.old
+pyproject.toml.backup
+scripts/compliance/
+scripts/emergency*/
+scripts/error-recovery/
+scripts/quality-*.py
+scripts/security-*.py
+scripts/setup-*.py
+scripts/taskmaster-*.py
+ai_docs/
+analyze_function_sizes.py
