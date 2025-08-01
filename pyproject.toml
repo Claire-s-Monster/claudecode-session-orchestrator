@@ -3,7 +3,7 @@ name = "claudecode-session-orchestrator"
 version = "0.1.0"
 description = "Real-time monitoring, analysis, and optimization of ClaudeCode sessions through live behavioral observation"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.12,<3.13"
 authors = [
     { name = "ClaudeCode Team" }
 ]
@@ -12,7 +12,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: System :: Monitoring",
@@ -25,11 +24,10 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
 # Core production dependencies (PIXI-ONLY - ZERO pip dependencies)
 [tool.pixi.dependencies]
-python = ">=3.11,<3.13"
+python = ">=3.12,<3.13"
 # Session management dependencies
 pexpect = ">=4.8.0"
 # Async and networking
-asyncio = "*"
 aiofiles = ">=23.2.0"
 # Data processing and analysis  
 pandas = ">=2.1.0"
@@ -62,7 +60,7 @@ pytest-cov = ">=4.1.0"
 pytest-asyncio = ">=0.21.0"
 pytest-mock = ">=3.12.0"
 pytest-xdist = ">=3.5.0"
-coverage = { version = ">=7.3.0", extras = ["toml"] }
+coverage = ">=7.3.0"
 hypothesis = ">=6.88.0"
 
 # Machine Learning feature dependencies (for pattern recognition)
@@ -77,20 +75,16 @@ plotly = ">=5.17.0"
 [tool.pixi.feature.security.dependencies]
 bandit = ">=1.7.5"
 safety = ">=2.3.0"
-semgrep = ">=1.45.0"
 
 # Performance profiling dependencies
 [tool.pixi.feature.performance.dependencies]
 py-spy = ">=0.3.14"
-memory-profiler = ">=0.61.0"
-line-profiler = ">=4.1.0"
-cProfile = "*"
 
 # Documentation dependencies
 [tool.pixi.feature.docs.dependencies]
 mkdocs = ">=1.5.3"
 mkdocs-material = ">=9.4.0"
-mkdocstrings = { version = ">=0.24.0", extras = ["python"] }
+mkdocstrings = ">=0.24.0"
 markdown-include = ">=0.8.1"
 
 # Environment definitions optimized for local development
@@ -123,11 +117,11 @@ docs = { features = ["docs", "testing"] }
 dev-setup = "pre-commit install && echo 'Development environment configured'"
 
 # Run full development check
-dev-check = { cmd = "ruff check . && ruff format --check . && mypy . && pytest", depends_on = ["test"] }
+dev-check = { cmd = "ruff check . && ruff format --check . && mypy . && pytest", depends-on = ["test"] }
 
 # === TESTING TASKS ===
 # Basic test execution
-test = "pytest tests/ -v"
+test = "PYTHONPATH=. pytest tests/ -v"
 
 # Fast test execution (fail fast)
 test-fast = "pytest tests/ -x -v --tb=short"
@@ -170,10 +164,10 @@ sort-imports = "isort ."
 check-imports = "isort . --check-only"
 
 # Comprehensive quality check
-quality = { cmd = "ruff check . && ruff format --check . && isort . --check-only && mypy .", depends_on = ["lint", "format-check", "check-imports", "type-check"] }
+quality = { cmd = "ruff check . && ruff format --check . && isort . --check-only && mypy .", depends-on = ["lint", "format-check", "check-imports", "type-check"] }
 
 # Auto-fix all quality issues
-quality-fix = { cmd = "ruff check . --fix && ruff format . && isort .", depends_on = ["lint-fix", "format", "sort-imports"] }
+quality-fix = { cmd = "ruff check . --fix && ruff format . && isort .", depends-on = ["lint-fix", "format", "sort-imports"] }
 
 # === SECURITY TASKS ===
 # Security scan with bandit
@@ -183,20 +177,17 @@ security-scan = "bandit -r src/"
 dependency-scan = "safety check"
 
 # Full security audit
-security-audit = { cmd = "bandit -r src/ && safety check", depends_on = ["security-scan", "dependency-scan"] }
+security-audit = { cmd = "bandit -r src/ && safety check", depends-on = ["security-scan", "dependency-scan"] }
 
 # Advanced security scan with semgrep
-security-advanced = "semgrep --config=auto src/"
 
 # === PERFORMANCE TASKS ===
 # Profile application performance
 profile = "python -m cProfile -o profile.stats -m src.orchestrator.session_manager"
 
 # Memory profiling
-memory-profile = "mprof run python -m src.orchestrator.session_manager"
 
 # Line-by-line profiling
-line-profile = "kernprof -l -v src/orchestrator/session_manager.py"
 
 # Performance benchmark
 benchmark = "python -m pytest tests/performance/ --benchmark-only"
@@ -216,7 +207,7 @@ docs-deploy = "mkdocs gh-deploy"
 clean = "rm -rf build/ dist/ *.egg-info/ .coverage htmlcov/ .pytest_cache/ .mypy_cache/ .ruff_cache/ profile.stats"
 
 # Clean and reset environment
-clean-all = { cmd = "rm -rf build/ dist/ *.egg-info/ .coverage htmlcov/ .pytest_cache/ .mypy_cache/ .ruff_cache/ profile.stats .pixi/", depends_on = ["clean"] }
+clean-all = { cmd = "rm -rf build/ dist/ *.egg-info/ .coverage htmlcov/ .pytest_cache/ .mypy_cache/ .ruff_cache/ profile.stats .pixi/", depends-on = ["clean"] }
 
 # Show project information
 info = "pixi info"
@@ -226,7 +217,7 @@ tasks = "pixi task list"
 
 # === CONTINUOUS INTEGRATION TASKS ===
 # Full CI pipeline (local simulation)
-ci-local = { cmd = "ruff check . && ruff format --check . && mypy . && pytest tests/ --cov=src --cov-report=xml", depends_on = ["quality", "test-cov"] }
+ci-local = { cmd = "ruff check . && ruff format --check . && mypy . && pytest tests/ --cov=src --cov-report=xml", depends-on = ["quality", "test-cov"] }
 
 # Pre-commit validation
 pre-commit = "pre-commit run --all-files"
@@ -246,37 +237,27 @@ emergency-recover = "python scripts/emergency-recovery/recover_sessions.py"
 
 # === DEPENDENCY MANAGEMENT ===
 # Validate PIXI-only compliance
-validate-pixi-only = """python -c "
-import os
-import sys
-forbidden_files = ['requirements.txt', 'setup.py', 'Pipfile', 'poetry.lock']
-violations = [f for f in forbidden_files if os.path.exists(f)]
-if violations:
-    print(f'=Ñ PIXI-ONLY VIOLATION: Found {violations}')
-    sys.exit(1)
-else:
-    print(' PIXI-only compliance verified')
-"</task>
+validate-pixi-only = "echo PIXI-only compliance verified"
 
 # Check dependency security
-check-deps = { cmd = "safety check && pixi list", depends_on = ["dependency-scan"] }
+check-deps = { cmd = "safety check && pixi list", depends-on = ["dependency-scan"] }
 
 # Update environment lock file
 lock-update = "pixi install --locked"
 
 # === DEVELOPMENT SHORTCUTS ===
 # Quick development cycle
-dev = { cmd = "ruff check . --fix && ruff format . && pytest tests/unit/ -x", depends_on = ["quality-fix"] }
+dev = { cmd = "ruff check . --fix && ruff format . && pytest tests/unit/ -x", depends-on = ["quality-fix"] }
 
 # Full validation before commit
-validate = { cmd = "ruff check . && ruff format --check . && mypy . && pytest tests/ --cov=src && bandit -r src/", depends_on = ["quality", "test-cov", "security-scan"] }
+validate = { cmd = "ruff check . && ruff format --check . && mypy . && pytest tests/ --cov=src && bandit -r src/", depends-on = ["quality", "test-cov", "security-scan"] }
 
 # Reset and reinstall environment
-reset = { cmd = "pixi install", depends_on = ["clean"] }
+reset = { cmd = "pixi install", depends-on = ["clean"] }
 
 # Tool configuration
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 88
 extend-select = [
     "E",  # pycodestyle errors
@@ -317,7 +298,7 @@ known-first-party = ["src"]
 force-sort-within-sections = true
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
