@@ -20,7 +20,12 @@ keywords = ["claudecode", "monitoring", "session-orchestration", "analysis"]
 
 [tool.pixi.project]
 channels = ["conda-forge", "pyviz"]
-platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+platforms = ["linux-64"]
+channel-priority = "disabled"  # Faster dependency resolution
+
+# Ensure proper environment isolation (CI Framework pattern)
+[tool.pixi.activation]
+env = { PYTHONNOUSERSITE = "1" }
 
 # Core production dependencies (PIXI-ONLY - ZERO pip dependencies)
 [tool.pixi.dependencies]
@@ -58,6 +63,7 @@ pytest-cov = ">=4.1.0"
 pytest-asyncio = ">=0.21.0"
 pytest-mock = ">=3.12.0"
 pytest-xdist = ">=3.5.0"
+pytest-timeout = ">=2.1.0"
 coverage = ">=7.3.0"
 hypothesis = ">=6.88.0"
 
@@ -85,28 +91,68 @@ mkdocs-material = ">=9.4.0"
 mkdocstrings = ">=0.24.0"
 markdown-include = ">=0.8.1"
 
-# Environment definitions optimized for local development
+# Monitoring feature dependencies (PRD requirement)
+[tool.pixi.feature.monitoring.dependencies]
+# Real-time monitoring capabilities
+watchdog = ">=3.0.0"
+# System process monitoring (already in core dependencies)
+psutil = ">=5.9.0"
+# Network monitoring
+requests = ">=2.31.0"
+
+# Analytics feature dependencies (PRD requirement)
+[tool.pixi.feature.analytics.dependencies]
+# Data analysis and visualization
+pandas = ">=2.1.0"
+numpy = ">=1.24.0"
+matplotlib = ">=3.8.0"
+seaborn = ">=0.13.0"
+plotly = ">=5.17.0"
+# Time series analysis
+scipy = ">=1.11.0"
+
+# Learning feature dependencies (PRD requirement - ML for pattern recognition)
+[tool.pixi.feature.learning.dependencies]
+# Machine learning for pattern recognition
+scikit-learn = ">=1.3.0"
+# Statistical analysis
+scipy = ">=1.11.0"
+# Data processing
+pandas = ">=2.1.0"
+numpy = ">=1.24.0"
+
+# Environment definitions optimized for local development (solve-group for consistency)
 [tool.pixi.environments]
 # Minimal production environment (no extras)
-prod = { features = [] }
+prod = { features = [], solve-group = "default" }
 
 # Core development environment (default for local work)
-default = { features = ["dev", "testing"] }
+default = { features = ["dev", "testing"], solve-group = "default" }
 
-# Full development environment with all capabilities
-dev-full = { features = ["dev", "testing", "ml", "security", "performance", "docs"] }
+# Full development environment with all capabilities including PRD features
+dev-full = { features = ["dev", "testing", "ml", "security", "performance", "docs", "monitoring", "analytics", "learning"], solve-group = "default" }
 
 # Testing-focused environment for CI
-ci = { features = ["testing", "security"] }
+ci = { features = ["testing", "security"], solve-group = "default" }
 
 # Machine learning development 
-ml-dev = { features = ["dev", "testing", "ml"] }
+ml-dev = { features = ["dev", "testing", "ml", "learning"], solve-group = "default" }
 
 # Performance analysis environment
-perf = { features = ["dev", "testing", "performance"] }
+perf = { features = ["dev", "testing", "performance"], solve-group = "default" }
 
 # Documentation building environment
-docs = { features = ["docs", "testing"] }
+docs = { features = ["docs", "testing"], solve-group = "default" }
+
+# PRD-specific environments
+# Monitoring environment for session orchestration
+monitoring = { features = ["dev", "testing", "monitoring", "analytics"], solve-group = "default" }
+
+# Analytics environment for performance analysis
+analytics = { features = ["dev", "testing", "analytics", "learning"], solve-group = "default" }
+
+# Complete orchestrator environment with all PRD features
+orchestrator = { features = ["dev", "testing", "monitoring", "analytics", "learning", "performance"], solve-group = "default" }
 
 # Local task configuration for development workflow
 [tool.pixi.tasks]
@@ -118,29 +164,29 @@ dev-setup = "pre-commit install && echo 'Development environment configured'"
 dev-check = { cmd = "ruff check . && ruff format --check . && mypy src/ && PYTHONPATH=. pytest tests/ -v", depends-on = ["test"] }
 
 # === TESTING TASKS ===
-# Basic test execution
-test = "PYTHONPATH=. pytest tests/ -v"
+# Basic test execution (Claude Code integration pattern)
+test = { cmd = "pytest tests/ -v", env = { CLAUDECODE = "0", PYTHONPATH = "src" } }
 
 # Fast test execution (fail fast)
-test-fast = "PYTHONPATH=. pytest tests/ -x -v --tb=short"
+test-fast = { cmd = "pytest tests/ -x -v --tb=short", env = { CLAUDECODE = "0", PYTHONPATH = "src" } }
 
 # Test with coverage reporting (using coverage module directly to avoid circular import)
-test-cov = "PYTHONPATH=. python -m coverage run -m pytest tests/ -v && python -m coverage report --show-missing"
+test-cov = { cmd = "python -m coverage run -m pytest tests/ -v && python -m coverage report --show-missing", env = { CLAUDECODE = "0", PYTHONPATH = "src" } }
 
 # Generate coverage HTML report
 coverage = "PYTHONPATH=. python -m coverage run -m pytest tests/ -v && python -m coverage html && python -m coverage report --show-missing"
 
 # Run tests in parallel
-test-parallel = "PYTHONPATH=. pytest tests/ -n auto"
+test-parallel = { cmd = "pytest tests/ -n auto", env = { CLAUDECODE = "0", PYTHONPATH = "src" } }
 
 # Run only unit tests
-test-unit = "PYTHONPATH=. pytest tests/unit/ -v"
+test-unit = { cmd = "pytest tests/unit/ -v", env = { CLAUDECODE = "0", PYTHONPATH = "src" } }
 
 # Run only integration tests  
-test-integration = "PYTHONPATH=. pytest tests/integration/ -v"
+test-integration = { cmd = "pytest tests/integration/ -v", env = { CLAUDECODE = "0", PYTHONPATH = "src" } }
 
 # Run performance tests
-test-performance = "PYTHONPATH=. pytest tests/performance/ -v"
+test-performance = { cmd = "pytest tests/performance/ -v --timeout=120", env = { CLAUDECODE = "0", PYTHONPATH = "src" } }
 
 # === CODE QUALITY TASKS ===
 # Lint checking
@@ -214,21 +260,33 @@ tasks = "pixi task list"
 # Full CI pipeline (local simulation)
 ci-local = { cmd = "ruff check . && ruff format --check . && mypy src/ && PYTHONPATH=. python -m coverage run -m pytest tests/ -v && python -m coverage report", depends-on = ["quality", "test-cov"] }
 
-# Pre-commit validation
-pre-commit = "pre-commit run --all-files"
+# Pre-commit validation (Claude Code integration)
+pre-commit = { cmd = "pre-commit run --all-files", env = { CLAUDECODE = "0" } }
+
+# Emergency fix for CI failures (Unified Template pattern)
+emergency-fix = "pixi run lint-fix && pixi run format && pixi run test"
 
 # === ORCHESTRATOR-SPECIFIC TASKS ===
 # Start session orchestrator
-start-orchestrator = "python -m src.orchestrator.session_manager"
+start-orchestrator = { cmd = "python -m src.orchestrator.session_manager", env = { PYTHONPATH = "src" } }
 
-# Monitor existing sessions
-monitor-sessions = "python -m src.monitoring.agent_monitor"
+# Monitor existing sessions (PRD requirement)
+monitor-sessions = { cmd = "python -m src.monitoring.agent_monitor", env = { PYTHONPATH = "src" } }
 
-# Run analytics dashboard
-analytics = "python -m src.analytics.dashboard"
+# Run analytics dashboard (PRD requirement)
+analytics = { cmd = "python -m src.analytics.dashboard", env = { PYTHONPATH = "src" } }
+
+# Start learning engine (PRD requirement)
+learning-engine = { cmd = "python -m src.learning.pattern_recognizer", env = { PYTHONPATH = "src" } }
+
+# Real-time performance tracker (PRD requirement)
+performance-tracker = { cmd = "python -m src.monitoring.performance_tracker", env = { PYTHONPATH = "src" } }
+
+# Start intervention engine (PRD requirement)
+intervention-engine = { cmd = "python -m src.intervention.suggestion_engine", env = { PYTHONPATH = "src" } }
 
 # Emergency session recovery
-emergency-recover = "python scripts/emergency-recovery/recover_sessions.py"
+emergency-recover = { cmd = "python scripts/emergency-recovery/recover_sessions.py", env = { PYTHONPATH = "src" } }
 
 # === DEPENDENCY MANAGEMENT ===
 # Validate PIXI-only compliance
@@ -316,8 +374,10 @@ disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q --strict-markers --strict-config"
+addopts = "-ra -q --strict-markers --strict-config --timeout=30"
 testpaths = ["tests"]
+timeout = 30
+timeout_method = "thread"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",

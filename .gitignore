@@ -29,7 +29,7 @@ node_modules/
 # tasks.json
 # tasks/ 
 
-# Python specific
+# Python specific (3.12+ compatible)
 __pycache__/
 *.py[cod]
 *$py.class
@@ -71,6 +71,37 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+
+# Python 3.12+ specific patterns
+*.pyo
+*.pyd
+__pycache__/
+.Python
+*.so.*
+
+# Modern Python tooling
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# PIXI environment (conda-forge based)
+.pixi/
+pixi.lock
+.pixi.toml
+
+# Additional Python environments
+.conda/
+conda-meta/
+.mamba/
+
+# Python build artifacts
+*.whl
+*.tar.gz
+*.zip
+setuptools-*.egg-info/
 
 # Translations
 *.mo
@@ -167,3 +198,31 @@ cython_debug/
 temp_*.txt
 *.tmp
 *.temp
+
+# ClaudeCode Session Orchestrator specific
+# Session data and monitoring files
+session_*.log
+monitoring_*.json
+orchestrator_*.db
+intervention_*.cache
+
+# Agent communication files
+agent_*.sock
+agent_*.pid
+
+# Performance monitoring
+*.perf
+performance_*.json
+benchmark_*.log
+
+# Recovery files
+recovery_*.backup
+emergency_*.log
+
+# Development artifacts
+dev_*.txt
+test_*.json
+debug_*.log
+
+# Claude Code session data
+.claude/

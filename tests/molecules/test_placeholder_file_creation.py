@@ -16,7 +16,7 @@ Coverage Areas:
 import os
 import shutil
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -160,16 +160,16 @@ class TestGitkeepStrategy:
         THEN directories should be processed properly including edge case line 94
         """
         temp_dir, directories = temp_project_structure
-        
+
         # Create a directory that's in target directories but also in processing list
         # This tests the edge case on line 94: root not in directories_to_process
         target_dir = os.path.join(temp_dir, directories[0])
-        
+
         result = placeholder_file_manager.create_gitkeep_files(temp_dir)
-        
+
         # Should handle the duplicate detection logic properly
         assert result.success is True
-        
+
         # Verify file was created in target directory
         gitkeep_path = os.path.join(target_dir, ".gitkeep")
         assert os.path.exists(gitkeep_path)
@@ -205,23 +205,23 @@ class TestGitkeepStrategy:
     ):
         """
         GIVEN a complex directory structure with subdirectories
-        WHEN creating gitkeep files  
+        WHEN creating gitkeep files
         THEN line 94 logic should be covered for directory hierarchy processing
         """
         temp_dir, directories = temp_project_structure
-        
+
         # Create a scenario where we have a directory with only subdirectories
         # This should trigger the line 94 logic where rel_path in target_directories
         # but root not in directories_to_process yet
         nested_target = os.path.join(temp_dir, "src", "special_nested")
         os.makedirs(nested_target, exist_ok=True)
-        
+
         # Add src to target directories (simulate matching condition)
         placeholder_file_manager.target_directories.append("src")
-        
+
         # This should trigger the line 94 logic
         result = placeholder_file_manager.create_gitkeep_files(temp_dir)
-        
+
         assert result.success is True
         # The src directory should get a gitkeep file due to line 94 logic
         src_gitkeep = os.path.join(temp_dir, "src", ".gitkeep")
@@ -239,17 +239,20 @@ class TestGitkeepStrategy:
 
         # Mock open() to raise an exception during file creation (line 109)
         original_open = open
+
         def mock_open_side_effect(*args, **kwargs):
-            if len(args) > 0 and '.gitkeep' in str(args[0]) and 'w' in str(args[1]):
+            if len(args) > 0 and ".gitkeep" in str(args[0]) and "w" in str(args[1]):
                 raise Exception("Simulated file creation error")
             return original_open(*args, **kwargs)
-        
+
         with patch("builtins.open", side_effect=mock_open_side_effect):
             result = placeholder_file_manager.create_gitkeep_files(temp_dir)
 
             # Should handle the exception gracefully (lines 122-123)
             assert len(result.errors) > 0, "General errors should be captured"
-            assert any("error creating .gitkeep" in error.lower() for error in result.errors)
+            assert any(
+                "error creating .gitkeep" in error.lower() for error in result.errors
+            )
 
 
 class TestReadmeStrategy:
@@ -345,13 +348,13 @@ class TestReadmeStrategy:
         THEN non-existent directories should be skipped (line 168)
         """
         temp_dir, directories = temp_project_structure
-        
+
         # Remove one directory to test the skip logic
         test_dir = os.path.join(temp_dir, directories[0])
         shutil.rmtree(test_dir)
-        
+
         result = placeholder_file_manager.create_readme_files(temp_dir)
-        
+
         # Should skip the missing directory
         assert result.success is True
         assert len(result.created_files) == len(directories) - 1
@@ -375,7 +378,7 @@ class TestReadmeStrategy:
             f.write(custom_content)
 
         # Run placeholder creation
-        result = placeholder_file_manager.create_readme_files(temp_dir)
+        placeholder_file_manager.create_readme_files(temp_dir)
 
         # Verify existing file wasn't overwritten
         with open(existing_readme) as f:
@@ -423,7 +426,9 @@ class TestReadmeStrategy:
 
             # Should handle the exception gracefully
             assert len(result.errors) > 0, "General errors should be captured"
-            assert any("error creating readme.md" in error.lower() for error in result.errors)
+            assert any(
+                "error creating readme.md" in error.lower() for error in result.errors
+            )
 
 
 class TestGitIntegration:
@@ -508,14 +513,20 @@ class TestGitIntegration:
         temp_dir, directories = temp_project_structure
 
         # Mock subprocess.run to raise FileNotFoundError
-        with patch("src.molecules.placeholder_file_manager.subprocess.run", 
-                  side_effect=FileNotFoundError("Git not found")):
+        with patch(
+            "src.molecules.placeholder_file_manager.subprocess.run",
+            side_effect=FileNotFoundError("Git not found"),
+        ):
             result = placeholder_file_manager.create_gitkeep_files(temp_dir)
 
             # Should handle git not available gracefully
             assert result.success is True
-            assert len(result.warnings) > 0, "Git availability warnings should be captured"
-            assert any("git not available" in warning.lower() for warning in result.warnings)
+            assert len(result.warnings) > 0, (
+                "Git availability warnings should be captured"
+            )
+            assert any(
+                "git not available" in warning.lower() for warning in result.warnings
+            )
 
     def test_git_general_exception_handling(
         self, temp_project_structure, placeholder_file_manager
@@ -528,14 +539,18 @@ class TestGitIntegration:
         temp_dir, directories = temp_project_structure
 
         # Mock subprocess.run to raise a general exception
-        with patch("src.molecules.placeholder_file_manager.subprocess.run", 
-                  side_effect=Exception("General git error")):
+        with patch(
+            "src.molecules.placeholder_file_manager.subprocess.run",
+            side_effect=Exception("General git error"),
+        ):
             result = placeholder_file_manager.create_gitkeep_files(temp_dir)
 
             # Should handle general git exceptions gracefully
             assert result.success is True
             assert len(result.warnings) > 0, "General git errors should be captured"
-            assert any("git add error" in warning.lower() for warning in result.warnings)
+            assert any(
+                "git add error" in warning.lower() for warning in result.warnings
+            )
 
 
 class TestEdgeCases:
