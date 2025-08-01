@@ -215,9 +215,6 @@ quality = { cmd = "ruff check . && ruff format --check . && mypy src/", depends-
 # Auto-fix all quality issues (using only ruff for imports)
 quality-fix = { cmd = "ruff check . --fix && ruff format .", depends-on = ["lint-fix", "format"] }
 
-# Type checking
-type-check = "mypy ."
-
 # Run isort for import sorting
 sort-imports = "isort src/ scripts/ tests/"
 
