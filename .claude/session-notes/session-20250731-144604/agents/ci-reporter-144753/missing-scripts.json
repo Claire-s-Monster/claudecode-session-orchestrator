@@ -1,0 +1,44 @@
+[
+  {
+    "name": "claudecode_analyze_github_workflows",
+    "reason": "Need automated workflow analysis for CI health assessment", 
+    "frequency": "would be used frequently for CI analysis",
+    "suggested_implementation": "Parse .github/workflows/*.yml files and extract key metrics, status, and configuration patterns"
+  },
+  {
+    "name": "claudecode_ci_framework_status", 
+    "reason": "Need to detect ci-framework integration patterns across projects",
+    "frequency": "essential for framework compliance analysis",
+    "suggested_implementation": "Check for ci-framework.yml, integration patterns, and compliance status"
+  },
+  {
+    "name": "claudecode_quality_baseline",
+    "reason": "Need to establish performance and quality baselines for trend analysis",
+    "frequency": "used for continuous improvement tracking", 
+    "suggested_implementation": "Run quality commands and establish baseline metrics for comparison"
+  },
+  {
+    "name": "claudecode_pre_commit_status",
+    "reason": "Need comprehensive pre-commit hook analysis and installation status",
+    "frequency": "used in every quality gate analysis",
+    "suggested_implementation": "Check .pre-commit-config.yaml, installed hooks, and execution status"
+  },
+  {
+    "name": "claudecode_security_baseline",
+    "reason": "Need automated security scanning and vulnerability baseline tracking",
+    "frequency": "critical for security compliance reporting",
+    "suggested_implementation": "Run security scans (bandit, safety) and track vulnerability trends"
+  },
+  {
+    "name": "claudecode_performance_baseline", 
+    "reason": "Need performance regression detection and trend analysis",
+    "frequency": "important for performance optimization tracking",
+    "suggested_implementation": "Run benchmark tasks and establish performance baselines"
+  },
+  {
+    "name": "claudecode_ci_health_score",
+    "reason": "Need comprehensive CI health scoring for organization-wide analysis",
+    "frequency": "essential for ci-reporter agent effectiveness",
+    "suggested_implementation": "Calculate health score based on workflows, quality gates, test coverage, and compliance"
+  }
+]

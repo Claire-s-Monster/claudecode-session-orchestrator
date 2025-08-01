@@ -1,0 +1,26 @@
+[
+  {
+    "name": "claudecode_parse_pixi_dependencies", 
+    "reason": "Had to manually grep and parse pyproject.toml PIXI sections for dependency analysis",
+    "frequency": "used 3 times",
+    "suggested_implementation": "Parse [tool.pixi.dependencies] and [tool.pixi.feature.*.dependencies] sections, return structured JSON with dependency counts and categories"
+  },
+  {
+    "name": "claudecode_count_pixi_environments",
+    "reason": "Manual counting of PIXI environments from pixi info output",
+    "frequency": "used 1 time", 
+    "suggested_implementation": "Parse pixi info output and return count of configured environments with their features"
+  },
+  {
+    "name": "claudecode_validate_dependency_versions",
+    "reason": "Manual validation of version constraints across dependencies",
+    "frequency": "used 1 time",
+    "suggested_implementation": "Check for version conflicts and compatibility issues across PIXI dependencies"
+  },
+  {
+    "name": "claudecode_analyze_mcp_server_health",
+    "reason": "Manual parsing of .mcp.json for server configuration validation",
+    "frequency": "used 1 time",
+    "suggested_implementation": "Parse .mcp.json and validate MCP server configurations, return health status"
+  }
+]

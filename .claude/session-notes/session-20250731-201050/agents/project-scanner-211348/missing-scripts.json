@@ -1,0 +1,27 @@
+[
+  {
+    "name": "claudecode_cached_pixi_info", 
+    "reason": "Had to use raw pixi info command",
+    "frequency": "used 1 time"
+  },
+  {
+    "name": "claudecode_cached_git_status",
+    "reason": "Git command was intercepted but no cached alternative available", 
+    "frequency": "attempted 1 time"
+  },
+  {
+    "name": "claudecode_check_project_structure",
+    "reason": "Had to manually check directory existence with multiple commands",
+    "frequency": "used throughout analysis"
+  },
+  {
+    "name": "claudecode_count_files_recursive",
+    "reason": "Had to use find | wc -l multiple times",
+    "frequency": "used 2 times"
+  },
+  {
+    "name": "claudecode_taskmaster_status",
+    "reason": "Had to manually check TaskMaster setup",
+    "frequency": "used 1 time"
+  }
+]

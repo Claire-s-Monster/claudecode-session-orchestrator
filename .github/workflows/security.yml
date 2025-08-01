@@ -1,0 +1,307 @@
+name: Security Analysis
+
+on:
+  push:
+    branches: [ main, master, develop, development ]
+  pull_request:
+    branches: [ main, master, develop, development ]
+  schedule:
+    # Run security scans daily at 3 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+env:
+  PYTHONNOUSERSITE: 1
+  PIXI_VERSION: v0.49.0
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # =============================================================================
+  # BANDIT SECURITY SCAN
+  # =============================================================================
+  bandit-scan:
+    name: Bandit Code Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run Bandit security scan
+        run: pixi run -e ci security-scan
+
+      - name: Generate Bandit SARIF report
+        run: |
+          pixi run -e ci bandit -r src/ -f sarif -o bandit-results.sarif
+        continue-on-error: true
+
+      - name: Upload Bandit SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+  # =============================================================================
+  # DEPENDENCY VULNERABILITY SCAN
+  # =============================================================================
+  safety-scan:
+    name: Safety Dependency Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run Safety dependency scan
+        run: pixi run -e ci dependency-scan
+
+      - name: Generate Safety JSON report
+        run: |
+          pixi run -e ci safety check --json --output safety-results.json
+        continue-on-error: true
+
+      - name: Upload Safety results as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-results
+          path: safety-results.json
+          retention-days: 30
+
+  # =============================================================================
+  # SEMGREP SECURITY ANALYSIS
+  # =============================================================================
+  semgrep-scan:
+    name: Semgrep Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+          publishDeployment: ${{ secrets.SEMGREP_DEPLOYMENT_ID }}
+          generateSarif: "1"
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload Semgrep SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # =============================================================================
+  # CODEQL ANALYSIS
+  # =============================================================================
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended,security-and-quality
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: pixi install
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+
+  # =============================================================================
+  # TRIVY VULNERABILITY SCANNER
+  # =============================================================================
+  trivy-scan:
+    name: Trivy Vulnerability Scanner
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+  # =============================================================================
+  # COMPREHENSIVE SECURITY AUDIT
+  # =============================================================================
+  security-audit:
+    name: Comprehensive Security Audit
+    runs-on: ubuntu-latest
+    needs: [bandit-scan, safety-scan]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run comprehensive security audit
+        run: pixi run -e ci security-audit
+
+      - name: Verify dependency checks
+        run: pixi run -e ci check-deps
+
+  # =============================================================================
+  # SECURITY POLICY COMPLIANCE
+  # =============================================================================
+  security-compliance:
+    name: Security Policy Compliance
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for security policy
+        run: |
+          if [ -f "SECURITY.md" ]; then
+            echo "✅ Security policy found"
+          else
+            echo "⚠️ No security policy found - consider adding SECURITY.md"
+          fi
+
+      - name: Check for vulnerability disclosure
+        run: |
+          if [ -f ".github/SECURITY.md" ] || [ -f "SECURITY.md" ]; then
+            echo "✅ Vulnerability disclosure process documented"
+          else
+            echo "⚠️ Consider documenting vulnerability disclosure process"
+          fi
+
+      - name: Verify PIXI-only compliance
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+
+      - name: Check PIXI-only compliance
+        run: |
+          # Verify no pip requirements files
+          if [ -f "requirements.txt" ] || [ -f "requirements-dev.txt" ]; then
+            echo "❌ Found pip requirements files - violates PIXI-only policy"
+            exit 1
+          else
+            echo "✅ PIXI-only compliance verified"
+          fi
+
+  # =============================================================================
+  # SECURITY RESULTS SUMMARY
+  # =============================================================================
+  security-summary:
+    name: Security Analysis Summary
+    runs-on: ubuntu-latest
+    needs: [bandit-scan, safety-scan, semgrep-scan, codeql-analysis, trivy-scan, security-audit]
+    if: always()
+    
+    steps:
+      - name: Security Results Summary
+        run: |
+          echo "🔒 SECURITY ANALYSIS SUMMARY"
+          echo "============================"
+          
+          if [[ "${{ needs.bandit-scan.result }}" == "success" ]]; then
+            echo "✅ Bandit Code Scan: PASSED"
+          else
+            echo "❌ Bandit Code Scan: ISSUES FOUND"
+          fi
+          
+          if [[ "${{ needs.safety-scan.result }}" == "success" ]]; then
+            echo "✅ Safety Dependency Scan: PASSED"
+          else
+            echo "❌ Safety Dependency Scan: VULNERABILITIES FOUND"
+          fi
+          
+          if [[ "${{ needs.semgrep-scan.result }}" == "success" ]]; then
+            echo "✅ Semgrep Analysis: PASSED"
+          else
+            echo "❌ Semgrep Analysis: ISSUES FOUND"
+          fi
+          
+          if [[ "${{ needs.codeql-analysis.result }}" == "success" ]]; then
+            echo "✅ CodeQL Analysis: PASSED"
+          else
+            echo "❌ CodeQL Analysis: ISSUES FOUND"
+          fi
+          
+          if [[ "${{ needs.trivy-scan.result }}" == "success" ]]; then
+            echo "✅ Trivy Vulnerability Scan: PASSED"
+          else
+            echo "❌ Trivy Vulnerability Scan: ISSUES FOUND"
+          fi
+          
+          if [[ "${{ needs.security-audit.result }}" == "success" ]]; then
+            echo "✅ Comprehensive Security Audit: PASSED"
+          else
+            echo "❌ Comprehensive Security Audit: ISSUES FOUND"
+          fi
+          
+          echo ""
+          echo "📋 Security scan results are available in the Security tab."
+          echo "🔍 Review SARIF reports for detailed findings."

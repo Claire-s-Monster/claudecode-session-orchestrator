@@ -9,9 +9,9 @@ following atomic design principles. It implements two strategies:
 The module handles git integration and provides comprehensive error handling.
 """
 
+from dataclasses import dataclass, field
 import os
 import subprocess
-from dataclasses import dataclass, field
 
 
 @dataclass

@@ -1,0 +1,1 @@
+MISSING FUNCTIONALITY: Pre-commit hooks cannot install due to git MCP redirector interference. Pre-commit requires direct git access for installation but MCP redirector blocks all git commands. Need bypass mechanism for pre-commit installation.

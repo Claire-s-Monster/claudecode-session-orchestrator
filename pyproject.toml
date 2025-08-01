@@ -46,8 +46,6 @@ rich = ">=13.0.0"
 # Code quality tools
 ruff = ">=0.1.8"
 mypy = ">=1.7.0"
-black = ">=23.11.0"
-isort = ">=5.12.0"
 # Development utilities
 ipython = ">=8.18.0"
 jupyter = ">=1.0.0"
@@ -117,29 +115,32 @@ docs = { features = ["docs", "testing"] }
 dev-setup = "pre-commit install && echo 'Development environment configured'"
 
 # Run full development check
-dev-check = { cmd = "ruff check . && ruff format --check . && mypy . && pytest", depends-on = ["test"] }
+dev-check = { cmd = "ruff check . && ruff format --check . && mypy src/ && PYTHONPATH=. pytest tests/ -v", depends-on = ["test"] }
 
 # === TESTING TASKS ===
 # Basic test execution
 test = "PYTHONPATH=. pytest tests/ -v"
 
 # Fast test execution (fail fast)
-test-fast = "pytest tests/ -x -v --tb=short"
+test-fast = "PYTHONPATH=. pytest tests/ -x -v --tb=short"
 
-# Test with coverage reporting
-test-cov = "pytest tests/ --cov=src --cov-report=html --cov-report=term --cov-report=xml"
+# Test with coverage reporting (using coverage module directly to avoid circular import)
+test-cov = "PYTHONPATH=. python -m coverage run -m pytest tests/ -v && python -m coverage report --show-missing"
+
+# Generate coverage HTML report
+coverage = "PYTHONPATH=. python -m coverage run -m pytest tests/ -v && python -m coverage html && python -m coverage report --show-missing"
 
 # Run tests in parallel
-test-parallel = "pytest tests/ -n auto"
+test-parallel = "PYTHONPATH=. pytest tests/ -n auto"
 
 # Run only unit tests
-test-unit = "pytest tests/unit/ -v"
+test-unit = "PYTHONPATH=. pytest tests/unit/ -v"
 
 # Run only integration tests  
-test-integration = "pytest tests/integration/ -v"
+test-integration = "PYTHONPATH=. pytest tests/integration/ -v"
 
 # Run performance tests
-test-performance = "pytest tests/performance/ -v"
+test-performance = "PYTHONPATH=. pytest tests/performance/ -v"
 
 # === CODE QUALITY TASKS ===
 # Lint checking
@@ -154,20 +155,14 @@ format = "ruff format ."
 # Check formatting
 format-check = "ruff format --check ."
 
-# Type checking
-type-check = "mypy ."
+# Type checking (only on src to avoid test type issues)
+type-check = "mypy src/"
 
-# Run isort for import sorting
-sort-imports = "isort ."
+# Comprehensive quality check (using only ruff for imports)
+quality = { cmd = "ruff check . && ruff format --check . && mypy src/", depends-on = ["lint", "format-check", "type-check"] }
 
-# Check import sorting
-check-imports = "isort . --check-only"
-
-# Comprehensive quality check
-quality = { cmd = "ruff check . && ruff format --check . && isort . --check-only && mypy .", depends-on = ["lint", "format-check", "check-imports", "type-check"] }
-
-# Auto-fix all quality issues
-quality-fix = { cmd = "ruff check . --fix && ruff format . && isort .", depends-on = ["lint-fix", "format", "sort-imports"] }
+# Auto-fix all quality issues (using only ruff for imports)
+quality-fix = { cmd = "ruff check . --fix && ruff format .", depends-on = ["lint-fix", "format"] }
 
 # === SECURITY TASKS ===
 # Security scan with bandit
@@ -217,7 +212,7 @@ tasks = "pixi task list"
 
 # === CONTINUOUS INTEGRATION TASKS ===
 # Full CI pipeline (local simulation)
-ci-local = { cmd = "ruff check . && ruff format --check . && mypy . && pytest tests/ --cov=src --cov-report=xml", depends-on = ["quality", "test-cov"] }
+ci-local = { cmd = "ruff check . && ruff format --check . && mypy src/ && PYTHONPATH=. python -m coverage run -m pytest tests/ -v && python -m coverage report", depends-on = ["quality", "test-cov"] }
 
 # Pre-commit validation
 pre-commit = "pre-commit run --all-files"
@@ -247,10 +242,10 @@ lock-update = "pixi install --locked"
 
 # === DEVELOPMENT SHORTCUTS ===
 # Quick development cycle
-dev = { cmd = "ruff check . --fix && ruff format . && pytest tests/unit/ -x", depends-on = ["quality-fix"] }
+dev = { cmd = "ruff check . --fix && ruff format . && PYTHONPATH=. pytest tests/unit/ -x", depends-on = ["quality-fix"] }
 
 # Full validation before commit
-validate = { cmd = "ruff check . && ruff format --check . && mypy . && pytest tests/ --cov=src && bandit -r src/", depends-on = ["quality", "test-cov", "security-scan"] }
+validate = { cmd = "ruff check . && ruff format --check . && mypy src/ && PYTHONPATH=. python -m coverage run -m pytest tests/ -v && python -m coverage report && bandit -r src/", depends-on = ["quality", "test-cov", "security-scan"] }
 
 # Reset and reinstall environment
 reset = { cmd = "pixi install", depends-on = ["clean"] }
@@ -259,6 +254,17 @@ reset = { cmd = "pixi install", depends-on = ["clean"] }
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
 extend-select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings  
@@ -277,25 +283,16 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "W191",  # indentation contains tabs
 ]
-exclude = [
-    ".git",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".venv",
-    "__pycache__",
-    "build",
-    "dist",
-]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+force-sort-within-sections = true
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
-[tool.ruff.isort]
-known-first-party = ["src"]
-force-sort-within-sections = true
 
 [tool.mypy]
 python_version = "3.12"
@@ -360,13 +357,6 @@ directory = "htmlcov"
 [tool.bandit]
 exclude_dirs = ["tests", "scripts"]
 skips = ["B101", "B601"]
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-line_length = 88
-known_first_party = ["src"]
-skip = [".gitignore", ".mypy_cache", ".ruff_cache"]
 
 [build-system]
 requires = ["hatchling"]

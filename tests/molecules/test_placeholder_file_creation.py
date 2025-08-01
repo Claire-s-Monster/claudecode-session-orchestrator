@@ -16,7 +16,7 @@ Coverage Areas:
 import os
 import shutil
 import tempfile
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -151,6 +151,106 @@ class TestGitkeepStrategy:
         with open(existing_gitkeep) as f:
             assert f.read().strip() == custom_content
 
+    def test_gitkeep_in_target_directories_only(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a project with nested directories
+        WHEN creating gitkeep files
+        THEN directories should be processed properly including edge case line 94
+        """
+        temp_dir, directories = temp_project_structure
+        
+        # Create a directory that's in target directories but also in processing list
+        # This tests the edge case on line 94: root not in directories_to_process
+        target_dir = os.path.join(temp_dir, directories[0])
+        
+        result = placeholder_file_manager.create_gitkeep_files(temp_dir)
+        
+        # Should handle the duplicate detection logic properly
+        assert result.success is True
+        
+        # Verify file was created in target directory
+        gitkeep_path = os.path.join(target_dir, ".gitkeep")
+        assert os.path.exists(gitkeep_path)
+
+    def test_gitkeep_permission_error_handling(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a directory without write permissions
+        WHEN attempting to create .gitkeep files
+        THEN permission errors should be handled gracefully (line 122-123)
+        """
+        temp_dir, directories = temp_project_structure
+
+        # Remove write permissions from first directory
+        test_dir = os.path.join(temp_dir, directories[0])
+        os.chmod(test_dir, 0o444)  # Read-only
+
+        try:
+            result = placeholder_file_manager.create_gitkeep_files(temp_dir)
+
+            # Should handle permission error gracefully and continue processing
+            assert len(result.errors) > 0, "Permission errors should be captured"
+            assert any("permission" in error.lower() for error in result.errors)
+            # Line 121: result.success = True (continue processing)
+            assert result.success is True
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(test_dir, 0o755)
+
+    def test_gitkeep_directory_hierarchy_coverage_line_94(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a complex directory structure with subdirectories
+        WHEN creating gitkeep files  
+        THEN line 94 logic should be covered for directory hierarchy processing
+        """
+        temp_dir, directories = temp_project_structure
+        
+        # Create a scenario where we have a directory with only subdirectories
+        # This should trigger the line 94 logic where rel_path in target_directories
+        # but root not in directories_to_process yet
+        nested_target = os.path.join(temp_dir, "src", "special_nested")
+        os.makedirs(nested_target, exist_ok=True)
+        
+        # Add src to target directories (simulate matching condition)
+        placeholder_file_manager.target_directories.append("src")
+        
+        # This should trigger the line 94 logic
+        result = placeholder_file_manager.create_gitkeep_files(temp_dir)
+        
+        assert result.success is True
+        # The src directory should get a gitkeep file due to line 94 logic
+        src_gitkeep = os.path.join(temp_dir, "src", ".gitkeep")
+        assert os.path.exists(src_gitkeep)
+
+    def test_gitkeep_general_exception_handling_line_122_123(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a situation that causes a general exception during gitkeep creation
+        WHEN creating gitkeep files
+        THEN lines 122-123 should handle general exceptions
+        """
+        temp_dir, directories = temp_project_structure
+
+        # Mock open() to raise an exception during file creation (line 109)
+        original_open = open
+        def mock_open_side_effect(*args, **kwargs):
+            if len(args) > 0 and '.gitkeep' in str(args[0]) and 'w' in str(args[1]):
+                raise Exception("Simulated file creation error")
+            return original_open(*args, **kwargs)
+        
+        with patch("builtins.open", side_effect=mock_open_side_effect):
+            result = placeholder_file_manager.create_gitkeep_files(temp_dir)
+
+            # Should handle the exception gracefully (lines 122-123)
+            assert len(result.errors) > 0, "General errors should be captured"
+            assert any("error creating .gitkeep" in error.lower() for error in result.errors)
+
 
 class TestReadmeStrategy:
     """Test README.md file placement strategy."""
@@ -225,6 +325,106 @@ class TestReadmeStrategy:
                     f"Placeholder description missing from {directory}/README.md"
                 )
 
+    def test_readme_non_existent_base_path(self, placeholder_file_manager):
+        """
+        GIVEN a non-existent base path
+        WHEN creating README files
+        THEN FileNotFoundError should be raised (line 141)
+        """
+        non_existent_path = "/tmp/definitely_does_not_exist_12345"
+
+        with pytest.raises(FileNotFoundError):
+            placeholder_file_manager.create_readme_files(non_existent_path)
+
+    def test_readme_skips_non_existent_directories(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a project structure with some missing target directories
+        WHEN creating README files
+        THEN non-existent directories should be skipped (line 168)
+        """
+        temp_dir, directories = temp_project_structure
+        
+        # Remove one directory to test the skip logic
+        test_dir = os.path.join(temp_dir, directories[0])
+        shutil.rmtree(test_dir)
+        
+        result = placeholder_file_manager.create_readme_files(temp_dir)
+        
+        # Should skip the missing directory
+        assert result.success is True
+        assert len(result.created_files) == len(directories) - 1
+
+    def test_readme_existing_files_not_overwritten(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN directories with existing README.md files
+        WHEN placeholder file creation is run
+        THEN existing README files should not be overwritten (line 175)
+        """
+        temp_dir, directories = temp_project_structure
+
+        # Create existing README with custom content
+        test_dir = os.path.join(temp_dir, directories[0])
+        existing_readme = os.path.join(test_dir, "README.md")
+        custom_content = "# Custom existing README content"
+
+        with open(existing_readme, "w") as f:
+            f.write(custom_content)
+
+        # Run placeholder creation
+        result = placeholder_file_manager.create_readme_files(temp_dir)
+
+        # Verify existing file wasn't overwritten
+        with open(existing_readme) as f:
+            assert custom_content in f.read()
+
+    def test_readme_permission_error_handling(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a directory without write permissions
+        WHEN attempting to create README files
+        THEN permission errors should be handled gracefully (lines 208-214)
+        """
+        temp_dir, directories = temp_project_structure
+
+        # Remove write permissions from first directory
+        test_dir = os.path.join(temp_dir, directories[0])
+        os.chmod(test_dir, 0o444)  # Read-only
+
+        try:
+            result = placeholder_file_manager.create_readme_files(temp_dir)
+
+            # Should handle permission error gracefully
+            assert len(result.errors) > 0, "Permission errors should be captured"
+            assert any("permission" in error.lower() for error in result.errors)
+            # Line 212: result.success = True (continue processing)
+            assert result.success is True
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(test_dir, 0o755)
+
+    def test_readme_general_exception_handling(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a situation that causes a general exception during README creation
+        WHEN creating README files
+        THEN general exceptions should be handled (line 214)
+        """
+        temp_dir, directories = temp_project_structure
+
+        # Mock open to raise an exception
+        with patch("builtins.open", side_effect=OSError("Simulated OS error")):
+            result = placeholder_file_manager.create_readme_files(temp_dir)
+
+            # Should handle the exception gracefully
+            assert len(result.errors) > 0, "General errors should be captured"
+            assert any("error creating readme.md" in error.lower() for error in result.errors)
+
 
 class TestGitIntegration:
     """Test git tracking and integration functionality."""
@@ -296,6 +496,46 @@ class TestGitIntegration:
         # Files should still be created even if git fails
         assert result.success is True
         assert len(result.warnings) > 0, "Git warnings should be captured"
+
+    def test_git_not_available_handling(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN git command not available on system
+        WHEN creating placeholder files
+        THEN FileNotFoundError should be handled gracefully (line 238-240)
+        """
+        temp_dir, directories = temp_project_structure
+
+        # Mock subprocess.run to raise FileNotFoundError
+        with patch("src.molecules.placeholder_file_manager.subprocess.run", 
+                  side_effect=FileNotFoundError("Git not found")):
+            result = placeholder_file_manager.create_gitkeep_files(temp_dir)
+
+            # Should handle git not available gracefully
+            assert result.success is True
+            assert len(result.warnings) > 0, "Git availability warnings should be captured"
+            assert any("git not available" in warning.lower() for warning in result.warnings)
+
+    def test_git_general_exception_handling(
+        self, temp_project_structure, placeholder_file_manager
+    ):
+        """
+        GIVEN a general exception during git operations
+        WHEN creating placeholder files
+        THEN general exceptions should be handled (line 242)
+        """
+        temp_dir, directories = temp_project_structure
+
+        # Mock subprocess.run to raise a general exception
+        with patch("src.molecules.placeholder_file_manager.subprocess.run", 
+                  side_effect=Exception("General git error")):
+            result = placeholder_file_manager.create_gitkeep_files(temp_dir)
+
+            # Should handle general git exceptions gracefully
+            assert result.success is True
+            assert len(result.warnings) > 0, "General git errors should be captured"
+            assert any("git add error" in warning.lower() for warning in result.warnings)
 
 
 class TestEdgeCases:

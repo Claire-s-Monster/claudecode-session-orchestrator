@@ -1,0 +1,95 @@
+# Pre-commit hooks configuration for quality enforcement
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # Code formatting
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        language_version: python3.11
+
+  # Import sorting
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  # Linting with flake8
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args: [
+          "--max-line-length=88",
+          "--extend-ignore=E203,W503",
+          "--select=F,E9,W6"
+        ]
+
+  # Type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+        args: ["--ignore-missing-imports", "--strict-optional"]
+
+  # Security checks
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.8
+    hooks:
+      - id: bandit
+        args: ["-r", "src/", "-f", "json"]
+        exclude: tests/
+
+  # Documentation checks
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: ["--convention=google"]
+
+  # Basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: mixed-line-ending
+
+  # Pytest for test execution
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pixi run test
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # Coverage check
+  - repo: local
+    hooks:
+      - id: coverage
+        name: coverage-check
+        entry: pixi run coverage-check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # Additional quality checks
+  - repo: local
+    hooks:
+      - id: quality-gates
+        name: quality-gates
+        entry: pixi run quality
+        language: system
+        pass_filenames: false
+        always_run: true

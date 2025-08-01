@@ -1,0 +1,231 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, master, develop, development ]
+  pull_request:
+    branches: [ main, master, develop, development ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  PYTHONNOUSERSITE: 1
+  PIXI_VERSION: v0.49.0
+
+jobs:
+  # =============================================================================
+  # UNIT TESTS
+  # =============================================================================
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+        
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run unit tests
+        run: pixi run -e ci test-unit
+
+  # =============================================================================
+  # INTEGRATION TESTS
+  # =============================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run integration tests
+        run: pixi run -e ci test-integration
+
+  # =============================================================================
+  # PARALLEL TEST EXECUTION
+  # =============================================================================
+  parallel-tests:
+    name: Parallel Test Execution
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run tests in parallel
+        run: pixi run -e ci test-parallel
+
+  # =============================================================================
+  # COVERAGE ANALYSIS
+  # =============================================================================
+  coverage:
+    name: Test Coverage Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run tests with coverage
+        run: pixi run -e ci test-cov
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: test-coverage
+          fail_ci_if_error: false
+
+      - name: Upload coverage reports to Codacy
+        uses: codacy/codacy-coverage-reporter-action@v1
+        if: env.CODACY_PROJECT_TOKEN
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        with:
+          coverage-reports: coverage.xml
+
+  # =============================================================================
+  # PERFORMANCE TESTS
+  # =============================================================================
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: perf
+
+      - name: Install performance dependencies
+        run: pixi install -e perf
+
+      - name: Run performance tests
+        run: pixi run -e perf test-performance
+
+  # =============================================================================
+  # TEST MATRIX - COMPREHENSIVE
+  # =============================================================================
+  test-matrix:
+    name: Test Matrix (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+        
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run comprehensive test suite
+        run: pixi run -e ci test
+
+  # =============================================================================
+  # TEST RESULTS SUMMARY
+  # =============================================================================
+  test-results:
+    name: Test Results Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, parallel-tests, coverage]
+    if: always()
+    
+    steps:
+      - name: Test Results Summary
+        run: |
+          echo "📊 TEST RESULTS SUMMARY"
+          echo "======================="
+          
+          if [[ "${{ needs.unit-tests.result }}" == "success" ]]; then
+            echo "✅ Unit Tests: PASSED"
+          else
+            echo "❌ Unit Tests: FAILED"
+          fi
+          
+          if [[ "${{ needs.integration-tests.result }}" == "success" ]]; then
+            echo "✅ Integration Tests: PASSED"
+          else
+            echo "❌ Integration Tests: FAILED"
+          fi
+          
+          if [[ "${{ needs.parallel-tests.result }}" == "success" ]]; then
+            echo "✅ Parallel Tests: PASSED"
+          else
+            echo "❌ Parallel Tests: FAILED"
+          fi
+          
+          if [[ "${{ needs.coverage.result }}" == "success" ]]; then
+            echo "✅ Coverage Analysis: COMPLETED"
+          else
+            echo "❌ Coverage Analysis: FAILED"
+          fi
+          
+          echo ""
+          echo "Test suite execution completed."

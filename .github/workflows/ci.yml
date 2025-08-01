@@ -1,0 +1,244 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, master, develop, development ]
+  pull_request:
+    branches: [ main, master, develop, development ]
+  workflow_dispatch:
+
+env:
+  PYTHONNOUSERSITE: 1
+  PIXI_VERSION: v0.49.0
+
+jobs:
+  # =============================================================================
+  # QUALITY GATES - LEVERAGING PIXI INFRASTRUCTURE
+  # =============================================================================
+  quality-gates:
+    name: Quality Gates (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Verify PIXI installation
+        run: |
+          pixi --version
+          pixi info
+          
+      - name: Install dependencies (CI environment)
+        run: pixi install -e ci
+
+      - name: Code quality checks (Ruff + MyPy)
+        run: pixi run -e ci quality
+
+      - name: Run comprehensive tests with coverage
+        run: pixi run -e ci test-cov
+
+      - name: Security audit
+        run: pixi run -e ci security-audit
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.11'
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  # =============================================================================
+  # CROSS-PLATFORM VALIDATION
+  # =============================================================================
+  cross-platform:
+    name: Cross-Platform (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+        
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies (CI environment)
+        run: pixi install -e ci
+
+      - name: Run fast tests
+        run: pixi run -e ci test-fast
+
+      - name: Basic quality check
+        run: pixi run -e ci lint
+
+  # =============================================================================
+  # COMPREHENSIVE SECURITY SCANNING
+  # =============================================================================
+  security:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run Bandit security scan
+        run: pixi run -e ci security-scan
+
+      - name: Run Safety dependency scan
+        run: pixi run -e ci dependency-scan
+
+      - name: Run Semgrep analysis
+        uses: semgrep/semgrep-action@v1
+        with:
+          publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+          publishDeployment: ${{ secrets.SEMGREP_DEPLOYMENT_ID }}
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # =============================================================================
+  # DEPENDENCY VULNERABILITY SCANNING
+  # =============================================================================
+  dependency-check:
+    name: Dependency Vulnerability Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Check for known vulnerabilities
+        run: pixi run -e ci check-deps
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.15.10
+        with:
+          path: ./
+          format: spdx-json
+
+      - name: Scan SBOM with Grype
+        uses: anchore/scan-action@v3
+        with:
+          sbom: "sbom.spdx.json"
+          fail-build: true
+          severity-cutoff: high
+
+  # =============================================================================
+  # PERFORMANCE BENCHMARKS
+  # =============================================================================
+  performance:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: perf
+
+      - name: Install performance dependencies
+        run: pixi install -e perf
+
+      - name: Run performance tests
+        run: pixi run -e perf test-performance
+
+      - name: Run benchmarks
+        run: pixi run -e perf benchmark
+
+  # =============================================================================
+  # VALIDATION GATE - COMPREHENSIVE CHECK
+  # =============================================================================
+  validate:
+    name: Comprehensive Validation
+    runs-on: ubuntu-latest
+    needs: [quality-gates, cross-platform, security, dependency-check]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run comprehensive validation
+        run: pixi run -e ci validate
+
+      - name: Verify PIXI-only compliance
+        run: pixi run -e ci validate-pixi-only
+
+  # =============================================================================
+  # CI SUCCESS NOTIFICATION
+  # =============================================================================
+  ci-success:
+    name: CI Pipeline Success
+    runs-on: ubuntu-latest
+    needs: [validate]
+    if: success()
+    
+    steps:
+      - name: CI Success Notification
+        run: |
+          echo "🎉 All CI checks passed successfully!"
+          echo "✅ Quality gates: PASSED"
+          echo "✅ Cross-platform: PASSED" 
+          echo "✅ Security: PASSED"
+          echo "✅ Dependencies: PASSED"
+          echo "✅ Validation: PASSED"
+          echo ""
+          echo "Repository is ready for deployment or merge."
