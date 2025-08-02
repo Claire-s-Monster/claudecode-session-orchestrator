@@ -14,12 +14,12 @@ def test_pixi_environment():
 def test_imports():
     """Test that core dependencies are importable."""
     import importlib.util
-    
+
     required_packages = [
-        "aiofiles", "click", "numpy", "pandas", 
+        "aiofiles", "click", "numpy", "pandas",
         "pexpect", "psutil", "rich", "toml", "yaml"
     ]
-    
+
     for package in required_packages:
         spec = importlib.util.find_spec(package)
         if spec is None:

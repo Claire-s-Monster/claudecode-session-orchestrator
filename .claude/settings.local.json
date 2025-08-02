@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
       "Bash(*.claude/agent-scripts/:*)",
@@ -209,7 +210,10 @@
       "mcp__uckn-knowledge__predict_issues",
       "mcp__uckn-knowledge__recommend_setup",
       "mcp__uckn-knowledge__search_patterns",
-      "mcp__uckn-knowledge__validate_solution"
+      "mcp__uckn-knowledge__validate_solution",
+      "Bash(PYTHONPATH=src pytest tests/molecules/test_component_registry.py -v)",
+      "Bash(ruff check:*)",
+      "Bash(PYTHONPATH=/home/memento/ClaudeCode/Project/claudecode-session-orchestrator/worktrees/feat-initiate-project pixi run test)"
     ],
     "deny": [
       "Bash(*>*)",
@@ -231,6 +235,5 @@
     "git",
     "pytest-analyzer",
     "aider"
-  ],
-  "$schema": "https://json.schemastore.org/claude-code-settings.json"
+  ]
 }
