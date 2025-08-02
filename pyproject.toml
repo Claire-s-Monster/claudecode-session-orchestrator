@@ -55,6 +55,8 @@ mypy = ">=1.7.0"
 ipython = ">=8.18.0"
 jupyter = ">=1.0.0"
 pre-commit = ">=3.5.0"
+# GitHub CLI for remote collaboration
+gh = ">=2.40.0"
 
 # Testing feature dependencies  
 [tool.pixi.feature.testing.dependencies]
@@ -325,6 +327,25 @@ validate = { cmd = "ruff check . && ruff format --check . && mypy src/ && PYTHON
 
 # Reset and reinstall environment
 reset = { cmd = "pixi install", depends-on = ["clean"] }
+
+# === GITHUB CLI TASKS ===
+# GitHub CLI authentication status
+gh-auth-status = "gh auth status"
+
+# GitHub CLI authentication setup
+gh-auth-login = "gh auth login --web --hostname github.com"
+
+# Check PR status
+gh-pr-status = "gh pr status"
+
+# View current PR details
+gh-pr-view = "gh pr view"
+
+# List repository PRs
+gh-pr-list = "gh pr list"
+
+# Check CI status for PR
+gh-pr-checks = "gh pr checks"
 
 # Tool configuration
 [tool.ruff]
