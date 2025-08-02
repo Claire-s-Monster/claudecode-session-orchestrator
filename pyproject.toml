@@ -25,7 +25,7 @@ channel-priority = "disabled"  # Faster dependency resolution
 
 # Ensure proper environment isolation (CI Framework pattern)
 [tool.pixi.activation]
-env = { PYTHONNOUSERSITE = "1" }
+env = { PYTHONNOUSERSITE = "1", PYTHONPATH = "src" }
 
 # Core production dependencies (PIXI-ONLY - ZERO pip dependencies)
 [tool.pixi.dependencies]
@@ -235,14 +235,14 @@ security-audit = { cmd = "bandit -r src/ && safety check", depends-on = ["securi
 
 # === PERFORMANCE TASKS ===
 # Profile application performance
-profile = "python -m cProfile -o profile.stats -m src.orchestrator.session_manager"
+profile = { cmd = "python -m cProfile -o profile.stats -m src.orchestrator.session_manager", env = { PYTHONPATH = "src" } }
 
 # Memory profiling
 
 # Line-by-line profiling
 
 # Performance benchmark
-benchmark = "python -m pytest tests/performance/ --benchmark-only"
+benchmark = { cmd = "python -m pytest tests/performance/ -v", env = { PYTHONPATH = "src" } }
 
 # === DOCUMENTATION TASKS ===
 # Build documentation

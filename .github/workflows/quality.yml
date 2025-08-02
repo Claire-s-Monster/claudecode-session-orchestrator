@@ -2,9 +2,9 @@ name: Code Quality & Pre-commit
 
 on:
   push:
-    branches: [ main, master, develop, development ]
+    branches: [ main, master, feature/*, develop, development ]
   pull_request:
-    branches: [ main, master, develop, development ]
+    branches: [ main, master, feature/*, develop, development ]
   workflow_dispatch:
 
 env:

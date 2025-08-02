@@ -2,9 +2,9 @@ name: Performance & Monitoring
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feature/*, develop, development ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, feature/*, develop, development ]
   schedule:
     # Run performance tests weekly on Sundays at 5 AM UTC
     - cron: '0 5 * * 0'
