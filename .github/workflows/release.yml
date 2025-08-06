@@ -54,7 +54,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup PIXI
-        uses: prefix-dev/setup-pixi@v0.4.1
+        uses: prefix-dev/setup-pixi@v0.8.14
         with:
           pixi-version: ${{ env.PIXI_VERSION }}
           cache: true
@@ -159,7 +159,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup PIXI
-        uses: prefix-dev/setup-pixi@v0.4.1
+        uses: prefix-dev/setup-pixi@v0.8.14
         with:
           pixi-version: ${{ env.PIXI_VERSION }}
           cache: true
@@ -329,13 +329,20 @@ jobs:
             
             ## Installation
             
+            **PIXI-ONLY Installation (REQUIRED)**
+            
             ```bash
-            # Using PIXI (recommended)
+            # Add to your PIXI project (recommended method)
             pixi add claudecode-session-orchestrator==${{ needs.prepare-release.outputs.release_version }}
             
-            # Using pip (if needed)
-            pip install claudecode-session-orchestrator==${{ needs.prepare-release.outputs.release_version }}
+            # Or use in specific environment
+            pixi add --environment dev claudecode-session-orchestrator==${{ needs.prepare-release.outputs.release_version }}
+            
+            # Verify installation
+            pixi run python -c "import claudecode_session_orchestrator; print('Installation successful')"
             ```
+            
+            > **Note**: This project maintains strict PIXI-only dependency policy for enhanced reliability, reproducibility, and platform consistency. Direct pip installation is not supported.
             
             ## Verification
             
@@ -370,7 +377,7 @@ jobs:
         run: git pull origin ${{ github.ref_name }}
 
       - name: Setup PIXI
-        uses: prefix-dev/setup-pixi@v0.4.1
+        uses: prefix-dev/setup-pixi@v0.8.14
         with:
           pixi-version: ${{ env.PIXI_VERSION }}
           cache: true

@@ -3,38 +3,24 @@
 # See https://pre-commit.com/hooks.html for more hooks
 
 repos:
-  # Code formatting
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
+  # Unified linting and formatting with ruff (replaces black, isort, flake8)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.8
     hooks:
-      - id: black
-        language_version: python3.11
+      # Linting
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      # Formatting
+      - id: ruff-format
 
-  # Import sorting
-  - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: ["--profile", "black"]
-
-  # Linting with flake8
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.0.0
-    hooks:
-      - id: flake8
-        args: [
-          "--max-line-length=88",
-          "--extend-ignore=E203,W503",
-          "--select=F,E9,W6"
-        ]
-
-  # Type checking
+  # Type checking (aligned with PIXI mypy configuration)
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.10.0
     hooks:
       - id: mypy
-        additional_dependencies: [types-all]
-        args: ["--ignore-missing-imports", "--strict-optional"]
+        language_version: python3.12
+        additional_dependencies: []
+        args: ["--config-file=pyproject.toml"]
 
   # Security checks
   - repo: https://github.com/PyCQA/bandit
@@ -64,32 +50,32 @@ repos:
       - id: check-added-large-files
       - id: mixed-line-ending
 
-  # Pytest for test execution
+  # PIXI-aligned quality gates (using unified toolchain)
   - repo: local
     hooks:
+      # Test execution through PIXI
       - id: pytest
-        name: pytest
+        name: pytest-pixi
         entry: pixi run test
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
 
-  # Coverage check
-  - repo: local
-    hooks:
+      # Coverage validation through PIXI
       - id: coverage
-        name: coverage-check
-        entry: pixi run coverage-check
+        name: coverage-pixi
+        entry: pixi run test-cov
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
 
-  # Additional quality checks
-  - repo: local
-    hooks:
+      # Comprehensive quality gates through PIXI
       - id: quality-gates
-        name: quality-gates
+        name: quality-gates-pixi
         entry: pixi run quality
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]

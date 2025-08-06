@@ -20,13 +20,12 @@ jobs:
         python-version: '3.12'
     
     - name: Setup Pixi
-      uses: prefix-dev/setup-pixi@v0.8.12
+      uses: prefix-dev/setup-pixi@v0.8.14
       with:
         pixi-version: v0.13.0
     
     - name: Install dependencies
-      run: pixi install
+      run: pixi install --manifest-path pyproject.toml
     
     - name: Run Zero-Tolerance Quality Pipeline
       run: pixi run check-all
-EOF < /dev/null
