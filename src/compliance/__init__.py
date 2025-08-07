@@ -11,11 +11,10 @@ from .quality_enforcer import QualityEnforcer
 from .security_validator import SecurityValidator
 
 __all__ = [
-    'ComplianceVerifier',
-    'McpUsageMonitor', 
-    'QualityEnforcer',
-    'SecurityValidator'
+    "ComplianceVerifier",
+    "McpUsageMonitor",
+    "QualityEnforcer",
+    "SecurityValidator",
 ]
 
-__version__ = '1.0.0'
-EOF < /dev/null
+__version__ = "1.0.0"

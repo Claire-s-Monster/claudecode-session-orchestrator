@@ -21,5 +21,5 @@ __all__ = [
     "PlaceholderResult",
     "ComponentRegistry",
     "ComponentRegistrationError",
-    "ComponentNotFoundError"
+    "ComponentNotFoundError",
 ]

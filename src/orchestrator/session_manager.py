@@ -21,6 +21,7 @@ import pexpect  # type: ignore
 
 class SessionStatus(Enum):
     """Enumeration of possible session states."""
+
     ACTIVE = auto()
     INACTIVE = auto()
     CREATING = auto()
@@ -96,21 +97,25 @@ class SessionInfo:
 
 class SessionManagerError(Exception):
     """Base exception for session manager errors."""
+
     pass
 
 
 class SessionNotFoundError(SessionManagerError):
     """Raised when a requested session is not found."""
+
     pass
 
 
 class SessionCreationError(SessionManagerError):
     """Raised when session creation fails."""
+
     pass
 
 
 class SessionOperationError(SessionManagerError):
     """Raised when a session operation fails."""
+
     pass
 
 
@@ -144,9 +149,7 @@ class SessionManager:
         self._operation_count = 0
         self._total_operation_time = 0.0
 
-        self.logger.info(
-            f"SessionManager initialized with config: {self.config}"
-        )
+        self.logger.info(f"SessionManager initialized with config: {self.config}")
 
     def _setup_logging(self) -> None:
         """Setup logging configuration."""
@@ -219,8 +222,12 @@ class SessionManager:
                 if session_info.session_name in active_session_names:
                     # Find session details from tmux list
                     tmux_session = next(
-                        (s for s in active_sessions if s["name"] == session_info.session_name),
-                        None
+                        (
+                            s
+                            for s in active_sessions
+                            if s["name"] == session_info.session_name
+                        ),
+                        None,
                     )
                     if tmux_session:
                         session_info.status = SessionStatus.ACTIVE
@@ -244,23 +251,27 @@ class SessionManager:
         """
         try:
             # Use tmux list-sessions with format string for parsing
-            output = await self._execute_tmux_command([
-                "list-sessions",
-                "-F",
-                "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}"
-            ])
+            output = await self._execute_tmux_command(
+                [
+                    "list-sessions",
+                    "-F",
+                    "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}",
+                ]
+            )
 
             sessions = []
             for line in output.split("\n"):
                 if line.strip():
                     parts = line.split("|")
                     if len(parts) >= 4:
-                        sessions.append({
-                            "name": parts[0],
-                            "windows": int(parts[1]) if parts[1].isdigit() else 0,
-                            "attached": parts[2] == "1",
-                            "created": int(parts[3]) if parts[3].isdigit() else 0
-                        })
+                        sessions.append(
+                            {
+                                "name": parts[0],
+                                "windows": int(parts[1]) if parts[1].isdigit() else 0,
+                                "attached": parts[2] == "1",
+                                "created": int(parts[3]) if parts[3].isdigit() else 0,
+                            }
+                        )
 
             return sessions
 
@@ -305,9 +316,7 @@ class SessionManager:
         return not any(char in name for char in invalid_chars)
 
     async def _execute_tmux_command(
-        self,
-        command: list[str],
-        timeout: float | None = None
+        self, command: list[str], timeout: float | None = None
     ) -> str:
         """
         Execute a tmux command asynchronously.
@@ -338,7 +347,7 @@ class SessionManager:
                     None,
                     self._run_pexpect_command,
                     full_command,
-                    timeout or self.config.operation_timeout
+                    timeout or self.config.operation_timeout,
                 )
 
                 # Update performance metrics
@@ -356,11 +365,7 @@ class SessionManager:
                 self.logger.error(f"Tmux command failed: {command} - {e}")
                 raise SessionOperationError(f"Command failed: {e}") from e
 
-    def _run_pexpect_command(
-        self,
-        command: list[str],
-        timeout: float
-    ) -> str:
+    def _run_pexpect_command(self, command: list[str], timeout: float) -> str:
         """
         Run command using pexpect (blocking operation for thread pool).
 
@@ -373,10 +378,7 @@ class SessionManager:
         """
         try:
             child = pexpect.spawn(
-                command[0],
-                command[1:],
-                timeout=timeout,
-                encoding="utf-8"
+                command[0], command[1:], timeout=timeout, encoding="utf-8"
             )
 
             child.expect(pexpect.EOF)
@@ -410,16 +412,24 @@ class SessionManager:
                 "total_operation_time": 0.0,
                 "operations_per_second": 0.0,
                 "performance_overhead_percent": 0.0,
-                "meets_5_percent_requirement": True
+                "meets_5_percent_requirement": True,
             }
 
         avg_time = self._total_operation_time / self._operation_count
-        ops_per_sec = self._operation_count / self._total_operation_time if self._total_operation_time > 0 else 0
+        ops_per_sec = (
+            self._operation_count / self._total_operation_time
+            if self._total_operation_time > 0
+            else 0
+        )
 
         # Calculate performance overhead as percentage
         # Baseline assumption: tmux operations should take ~0.3s on average (realistic for real tmux)
         baseline_time = 0.3
-        overhead_percent = ((avg_time - baseline_time) / baseline_time * 100) if baseline_time > 0 else 0
+        overhead_percent = (
+            ((avg_time - baseline_time) / baseline_time * 100)
+            if baseline_time > 0
+            else 0
+        )
         overhead_percent = max(0, overhead_percent)  # Don't show negative overhead
 
         return {
@@ -428,13 +438,11 @@ class SessionManager:
             "total_operation_time": self._total_operation_time,
             "operations_per_second": ops_per_sec,
             "performance_overhead_percent": overhead_percent,
-            "meets_5_percent_requirement": overhead_percent <= 5.0
+            "meets_5_percent_requirement": overhead_percent <= 5.0,
         }
 
     async def benchmark_performance(
-        self,
-        iterations: int = 100,
-        concurrent_operations: int = 5
+        self, iterations: int = 100, concurrent_operations: int = 5
     ) -> dict[str, Any]:
         """
         Run performance benchmarks to measure overhead.
@@ -446,7 +454,9 @@ class SessionManager:
         Returns:
             Benchmark results including overhead measurements.
         """
-        self.logger.info(f"Starting performance benchmark: {iterations} iterations, {concurrent_operations} concurrent")
+        self.logger.info(
+            f"Starting performance benchmark: {iterations} iterations, {concurrent_operations} concurrent"
+        )
 
         # Store original metrics
         original_count = self._operation_count
@@ -466,10 +476,8 @@ class SessionManager:
                 # Create multiple concurrent sessions
                 tasks = []
                 for j in range(concurrent_operations):
-                    session_name = f"benchmark_{i}_{j}_{int(time.time()*1000)}"
-                    task = asyncio.create_task(
-                        self.create_session(session_name)
-                    )
+                    session_name = f"benchmark_{i}_{j}_{int(time.time() * 1000)}"
+                    task = asyncio.create_task(self.create_session(session_name))
                     tasks.append(task)
 
                 # Wait for all sessions to be created
@@ -498,8 +506,12 @@ class SessionManager:
             total_benchmark_time = benchmark_end - benchmark_start
 
             # Calculate statistics
-            avg_create_time = sum(create_times) / len(create_times) if create_times else 0
-            avg_terminate_time = sum(terminate_times) / len(terminate_times) if terminate_times else 0
+            avg_create_time = (
+                sum(create_times) / len(create_times) if create_times else 0
+            )
+            avg_terminate_time = (
+                sum(terminate_times) / len(terminate_times) if terminate_times else 0
+            )
 
             # Calculate new operation metrics
             new_operations = self._operation_count - original_count
@@ -514,8 +526,11 @@ class SessionManager:
                 "average_terminate_time": avg_terminate_time,
                 "operations_during_benchmark": new_operations,
                 "operation_time_during_benchmark": new_operation_time,
-                "operations_per_second_benchmark": new_operations / new_operation_time if new_operation_time > 0 else 0,
-                "meets_performance_requirement": avg_create_time <= 0.315  # 5% overhead on 0.3s baseline
+                "operations_per_second_benchmark": new_operations / new_operation_time
+                if new_operation_time > 0
+                else 0,
+                "meets_performance_requirement": avg_create_time
+                <= 0.315,  # 5% overhead on 0.3s baseline
             }
 
             self.logger.info(f"Benchmark completed: {benchmark_results}")
@@ -549,7 +564,7 @@ class SessionManager:
             "open_files": len(process.open_files()),
             "threads": process.num_threads(),
             "active_sessions": len(self.get_active_sessions()),
-            "total_tracked_sessions": len(self._sessions)
+            "total_tracked_sessions": len(self._sessions),
         }
 
     def get_session_count(self) -> int:
@@ -569,7 +584,8 @@ class SessionManager:
             List of active session information.
         """
         return [
-            session for session in self._sessions.values()
+            session
+            for session in self._sessions.values()
             if session.status == SessionStatus.ACTIVE
         ]
 
@@ -580,7 +596,7 @@ class SessionManager:
         session_name: str | None = None,
         working_directory: Path | None = None,
         shell: str | None = None,
-        environment: dict[str, str] | None = None
+        environment: dict[str, str] | None = None,
     ) -> SessionInfo:
         """
         Create a new tmux session.
@@ -618,7 +634,7 @@ class SessionManager:
                 session_name=session_name,
                 status=SessionStatus.CREATING,
                 created_at=time.time(),
-                last_activity=time.time()
+                last_activity=time.time(),
             )
 
             # Track the session
@@ -640,9 +656,9 @@ class SessionManager:
             env_vars = {**self.config.environment_vars, **(environment or {})}
             if env_vars:
                 for key, value in env_vars.items():
-                    await self._execute_tmux_command([
-                        "set-environment", "-t", session_name, key, value
-                    ])
+                    await self._execute_tmux_command(
+                        ["set-environment", "-t", session_name, key, value]
+                    )
 
             # Create the session
             await self._execute_tmux_command(command)
@@ -699,7 +715,7 @@ class SessionManager:
                     status=SessionStatus.ACTIVE,
                     created_at=time.time(),
                     last_activity=time.time(),
-                    attached=True
+                    attached=True,
                 )
                 self._sessions[session_id] = session_info
                 return session_info
@@ -722,14 +738,13 @@ class SessionManager:
             return list(self._sessions.values())
         else:
             return [
-                session for session in self._sessions.values()
+                session
+                for session in self._sessions.values()
                 if session.status == SessionStatus.ACTIVE
             ]
 
     async def terminate_session(
-        self,
-        session_identifier: str | SessionInfo,
-        force: bool = False
+        self, session_identifier: str | SessionInfo, force: bool = False
     ) -> bool:
         """
         Terminate a tmux session.
@@ -778,8 +793,7 @@ class SessionManager:
                 raise SessionOperationError(f"Failed to terminate session: {e}") from e
 
     async def get_session_info(
-        self,
-        session_identifier: str | SessionInfo
+        self, session_identifier: str | SessionInfo
     ) -> SessionInfo | None:
         """
         Get information about a session.
@@ -826,8 +840,7 @@ class SessionManager:
         return self._sessions.get(session_id)
 
     async def _resolve_session(
-        self,
-        session_identifier: str | SessionInfo
+        self, session_identifier: str | SessionInfo
     ) -> SessionInfo | None:
         """Resolve session identifier to SessionInfo object."""
         if isinstance(session_identifier, SessionInfo):

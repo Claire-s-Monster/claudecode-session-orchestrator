@@ -80,7 +80,7 @@ class ErrorRecoveryManager:
     state preservation, and systematic recovery workflows.
     """
 
-    def __init__(self, project_root: Path, config: dict[str, Any] = None):
+    def __init__(self, project_root: Path, config: dict[str, Any] | None = None):
         self.project_root = Path(project_root)
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ class ErrorRecoveryManager:
         # Initialize recovery directories
         self._setup_recovery_infrastructure()
 
-    def _setup_recovery_infrastructure(self):
+    def _setup_recovery_infrastructure(self) -> None:
         """Initialize recovery directory structure and logging"""
         recovery_dir = self.project_root / ".recovery"
         recovery_dir.mkdir(exist_ok=True)
@@ -135,7 +135,7 @@ class ErrorRecoveryManager:
         agent_type: str,
         operation: str,
         error_message: str,
-        context: dict[str, Any] = None,
+        context: dict[str, Any] | None = None,  # noqa: ARG002
     ) -> RecoveryResult:
         """
         Main entry point for error handling and recovery.
@@ -482,7 +482,7 @@ class ErrorRecoveryManager:
             recommendation="EMERGENCY: Recovery system failure - immediate manual intervention required",
         )
 
-    async def _activate_emergency_mode(self):
+    async def _activate_emergency_mode(self) -> None:
         """Activate emergency mode with minimal operations"""
         self.emergency_mode = True
         self.logger.critical("EMERGENCY MODE ACTIVATED")
@@ -493,7 +493,7 @@ class ErrorRecoveryManager:
         # Disable non-essential operations
         await self._disable_non_essential_operations()
 
-    async def _emergency_stop(self):
+    async def _emergency_stop(self) -> None:
         """Complete system halt for critical failures"""
         self.logger.critical("EMERGENCY STOP - SYSTEM HALT")
         self.recovery_stats["emergency_stops"] += 1
@@ -508,7 +508,10 @@ class ErrorRecoveryManager:
     # Placeholder methods that will be enhanced with proper implementations
 
     async def _create_checkpoint(
-        self, agent_type: str, operation: str, error_id: str
+        self,
+        agent_type: str,
+        operation: str,  # noqa: ARG002
+        error_id: str,  # noqa: ARG002
     ) -> str:
         """Create operation checkpoint for recovery"""
         checkpoint_id = f"ckpt_{agent_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -520,11 +523,11 @@ class ErrorRecoveryManager:
         self.logger.info(f"Restoring from checkpoint: {checkpoint_id}")
         return True  # Placeholder
 
-    async def _create_state_snapshot(self, snapshot_id: str):
+    async def _create_state_snapshot(self, snapshot_id: str) -> None:
         """Create state snapshot"""
         self.logger.info(f"Creating state snapshot: {snapshot_id}")
 
-    async def _create_emergency_backup(self, backup_type: str = "emergency"):
+    async def _create_emergency_backup(self, backup_type: str = "emergency") -> None:
         """Create emergency backup of current state"""
         try:
             backup_id = f"{backup_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -532,7 +535,7 @@ class ErrorRecoveryManager:
         except Exception as e:
             self.logger.error(f"Failed to create emergency backup: {e}")
 
-    async def _disable_non_essential_operations(self):
+    async def _disable_non_essential_operations(self) -> None:
         """Disable non-essential operations during emergency mode"""
         self.logger.info("Non-essential operations disabled")
 
@@ -637,7 +640,7 @@ class ErrorRecoveryManager:
 
     async def _generate_error_report(
         self, error_ctx: ErrorContext, recovery_result: RecoveryResult
-    ):
+    ) -> None:
         """Generate comprehensive error report"""
         report = {
             "error_context": asdict(error_ctx),

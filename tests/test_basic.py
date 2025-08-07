@@ -16,8 +16,15 @@ def test_imports():
     import importlib.util
 
     required_packages = [
-        "aiofiles", "click", "numpy", "pandas",
-        "pexpect", "psutil", "rich", "toml", "yaml"
+        "aiofiles",
+        "click",
+        "numpy",
+        "pandas",
+        "pexpect",
+        "psutil",
+        "rich",
+        "toml",
+        "yaml",
     ]
 
     for package in required_packages:
@@ -31,11 +38,19 @@ def test_framework_compliance():
     from pathlib import Path
 
     # Verify PIXI-only compliance
-    forbidden_files = ["requirements.txt", "setup.py", "Pipfile", "poetry.lock", "pip.conf"]
+    forbidden_files = [
+        "requirements.txt",
+        "setup.py",
+        "Pipfile",
+        "poetry.lock",
+        "pip.conf",
+    ]
     project_root = Path(__file__).parent.parent
 
     for forbidden_file in forbidden_files:
-        assert not (project_root / forbidden_file).exists(), f"PIXI-only violation: {forbidden_file} found"
+        assert not (project_root / forbidden_file).exists(), (
+            f"PIXI-only violation: {forbidden_file} found"
+        )
 
     # Verify pyproject.toml exists
     assert (project_root / "pyproject.toml").exists(), "pyproject.toml must exist"

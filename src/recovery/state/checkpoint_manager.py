@@ -13,442 +13,425 @@ import logging
 from pathlib import Path
 import shutil
 import subprocess
-from typing import Any
 
 
 @dataclass
 class CheckpointMetadata:
-    """Metadata for operation checkpoints"""
+    """Metadata for a checkpoint."""
+
     checkpoint_id: str
-    agent_type: str
     operation: str
-    task_id: str | None
     timestamp: datetime
-    git_commit: str | None
-    git_branch: str | None
-    git_status_clean: bool
-    quality_status: dict[str, Any]
+    project_root: str
+    git_ref: str | None
     file_count: int
     size_bytes: int
+    description: str | None = None
+
+
+class CheckpointError(Exception):
+    """Raised when checkpoint operations fail."""
 
 
 class CheckpointManager:
     """
-    Manages operation checkpoints for state preservation and recovery.
-    
-    Creates lightweight checkpoints that capture essential state information
-    without impacting performance, enabling fast recovery operations.
+    Manages operation checkpoints for recovery.
+
+    Provides atomic checkpoint creation, restoration, and cleanup
+    with comprehensive metadata tracking and error handling.
     """
 
-    def __init__(self, project_root: Path, config: dict[str, Any] = None):
-        self.project_root = Path(project_root)
-        self.config = config or {}
+    def __init__(self, project_root: Path, checkpoint_dir: Path | None = None):
+        self.project_root = Path(project_root).resolve()
+        self.checkpoint_dir = checkpoint_dir or (self.project_root / ".checkpoints")
         self.logger = logging.getLogger(__name__)
-
-        # Checkpoint configuration
-        self.checkpoint_dir = self.project_root / ".recovery" / "checkpoints"
-        self.max_checkpoints = self.config.get("max_checkpoints", 50)
-        self.cleanup_threshold = self.config.get("cleanup_threshold", 100)
-        self.retention_days = self.config.get("retention_days", 7)
 
         # Ensure checkpoint directory exists
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize checkpoint metadata cache
-        self._checkpoint_cache: dict[str, CheckpointMetadata] = {}
-        self._load_checkpoint_cache()
-
-    def _load_checkpoint_cache(self):
-        """Load existing checkpoint metadata into cache"""
-        try:
-            for checkpoint_dir in self.checkpoint_dir.iterdir():
-                if checkpoint_dir.is_dir():
-                    metadata_file = checkpoint_dir / "metadata.json"
-                    if metadata_file.exists():
-                        try:
-                            with open(metadata_file) as f:
-                                data = json.load(f)
-
-                            # Convert timestamp string back to datetime
-                            data["timestamp"] = datetime.fromisoformat(data["timestamp"])
-
-                            metadata = CheckpointMetadata(**data)
-                            self._checkpoint_cache[metadata.checkpoint_id] = metadata
-                        except Exception as e:
-                            self.logger.warning(f"Failed to load checkpoint metadata {metadata_file}: {e}")
-        except Exception as e:
-            self.logger.error(f"Failed to load checkpoint cache: {e}")
+        # Maximum number of checkpoints to keep
+        self.max_checkpoints = 10
+        # Maximum age for checkpoints (days)
+        self.max_age_days = 30
 
     async def create_checkpoint(
-        self,
-        agent_type: str,
-        operation: str,
-        task_id: str | None = None
-    ) -> str:
+        self, checkpoint_id: str, operation: str, description: str | None = None
+    ) -> CheckpointMetadata:
         """
-        Create a new checkpoint capturing current state.
-        
+        Create a checkpoint of the current project state.
+
         Args:
-            agent_type: Type of agent creating the checkpoint
-            operation: Operation being performed
-            task_id: Optional task identifier
-            
+            checkpoint_id: Unique identifier for the checkpoint
+            operation: Operation being performed (for tracking)
+            description: Optional description of the checkpoint
+
         Returns:
-            Checkpoint ID for future restoration
+            CheckpointMetadata for the created checkpoint
+
+        Raises:
+            CheckpointError: If checkpoint creation fails
         """
-        checkpoint_id = f"ckpt_{agent_type}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:20]}"
-        checkpoint_path = self.checkpoint_dir / checkpoint_id
-
         try:
+            checkpoint_path = self.checkpoint_dir / checkpoint_id
+            if checkpoint_path.exists():
+                raise CheckpointError(f"Checkpoint {checkpoint_id} already exists")
+
+            self.logger.info(
+                f"Creating checkpoint {checkpoint_id} for operation: {operation}"
+            )
+
             # Create checkpoint directory
-            checkpoint_path.mkdir(exist_ok=True)
+            checkpoint_path.mkdir(parents=True, exist_ok=True)
 
-            # Capture git state
-            git_info = await self._capture_git_state()
+            # Get current git ref if in git repository
+            git_ref = await self._get_current_git_ref()
 
-            # Capture quality status
-            quality_status = await self._capture_quality_status()
+            # Create snapshot of project files
+            await self._create_file_snapshot(checkpoint_path)
 
-            # Capture TaskMaster state if task_id provided
-            if task_id:
-                await self._capture_taskmaster_state(checkpoint_path, task_id)
-
-            # Capture working directory state
-            await self._capture_working_directory_state(checkpoint_path)
-
-            # Calculate checkpoint size
-            size_bytes = self._calculate_directory_size(checkpoint_path)
-            file_count = len(list(checkpoint_path.rglob("*")))
+            # Calculate metadata
+            file_count = await self._count_files(checkpoint_path)
+            size_bytes = await self._calculate_size(checkpoint_path)
 
             # Create metadata
             metadata = CheckpointMetadata(
                 checkpoint_id=checkpoint_id,
-                agent_type=agent_type,
                 operation=operation,
-                task_id=task_id,
                 timestamp=datetime.now(),
-                git_commit=git_info.get("commit"),
-                git_branch=git_info.get("branch"),
-                git_status_clean=git_info.get("clean", False),
-                quality_status=quality_status,
+                project_root=str(self.project_root),
+                git_ref=git_ref,
                 file_count=file_count,
-                size_bytes=size_bytes
+                size_bytes=size_bytes,
+                description=description,
             )
 
             # Save metadata
-            with open(checkpoint_path / "metadata.json", "w") as f:
-                json.dump(asdict(metadata), f, indent=2, default=str)
+            metadata_file = checkpoint_path / "metadata.json"
+            with open(metadata_file, "w") as f:
+                # Convert dataclass to dict for JSON serialization
+                metadata_dict = asdict(metadata)
+                metadata_dict["timestamp"] = metadata.timestamp.isoformat()
+                json.dump(metadata_dict, f, indent=2)
 
-            # Add to cache
-            self._checkpoint_cache[checkpoint_id] = metadata
-
-            # Cleanup old checkpoints if needed
-            await self._cleanup_old_checkpoints()
-
-            self.logger.info(f"Checkpoint created: {checkpoint_id} ({size_bytes} bytes, {file_count} files)")
-            return checkpoint_id
+            self.logger.info(
+                f"Created checkpoint {checkpoint_id} with {file_count} files ({size_bytes} bytes)"
+            )
+            return metadata
 
         except Exception as e:
-            self.logger.error(f"Failed to create checkpoint {checkpoint_id}: {e}")
-            # Cleanup partial checkpoint
+            # Cleanup partial checkpoint on failure
+            checkpoint_path = self.checkpoint_dir / checkpoint_id
             if checkpoint_path.exists():
                 shutil.rmtree(checkpoint_path, ignore_errors=True)
-            raise
+            raise CheckpointError(
+                f"Failed to create checkpoint {checkpoint_id}: {e}"
+            ) from e
 
-    async def restore_checkpoint(self, checkpoint_id: str) -> bool:
+    async def restore_checkpoint(self, checkpoint_id: str) -> CheckpointMetadata:
         """
-        Restore system state from a checkpoint.
-        
+        Restore project state from a checkpoint.
+
         Args:
-            checkpoint_id: ID of checkpoint to restore
-            
+            checkpoint_id: ID of the checkpoint to restore
+
         Returns:
-            True if restoration was successful, False otherwise
+            CheckpointMetadata of the restored checkpoint
+
+        Raises:
+            CheckpointError: If restoration fails
         """
-        if checkpoint_id not in self._checkpoint_cache:
-            self.logger.error(f"Checkpoint not found: {checkpoint_id}")
-            return False
-
-        checkpoint_path = self.checkpoint_dir / checkpoint_id
-        if not checkpoint_path.exists():
-            self.logger.error(f"Checkpoint directory missing: {checkpoint_path}")
-            return False
-
-        metadata = self._checkpoint_cache[checkpoint_id]
-
         try:
-            self.logger.info(f"Restoring checkpoint: {checkpoint_id}")
+            checkpoint_path = self.checkpoint_dir / checkpoint_id
+            if not checkpoint_path.exists():
+                raise CheckpointError(f"Checkpoint {checkpoint_id} not found")
 
-            # Restore git state
-            git_restored = await self._restore_git_state(checkpoint_path, metadata)
-            if not git_restored:
-                self.logger.warning("Git state restoration failed")
-                return False
+            self.logger.info(f"Restoring checkpoint {checkpoint_id}")
 
-            # Restore working directory state
-            workdir_restored = await self._restore_working_directory_state(checkpoint_path)
-            if not workdir_restored:
-                self.logger.warning("Working directory restoration failed")
-                return False
+            # Load metadata
+            metadata = await self.get_checkpoint_metadata(checkpoint_id)
 
-            # Restore TaskMaster state if available
-            if metadata.task_id:
-                await self._restore_taskmaster_state(checkpoint_path, metadata.task_id)
+            # Create backup of current state before restoration
+            backup_id = f"pre_restore_{checkpoint_id}_{int(datetime.now().timestamp())}"
+            await self.create_checkpoint(backup_id, "pre_restore_backup")
 
-            # Verify restoration
-            verification_success = await self._verify_restoration(metadata)
-            if not verification_success:
-                self.logger.warning("Checkpoint restoration verification failed")
-                return False
+            # Restore files
+            await self._restore_file_snapshot(checkpoint_path)
 
-            self.logger.info(f"Checkpoint restoration successful: {checkpoint_id}")
-            return True
+            # Restore git ref if available
+            if metadata.git_ref:
+                await self._restore_git_ref(metadata.git_ref)
+
+            self.logger.info(f"Successfully restored checkpoint {checkpoint_id}")
+            return metadata
 
         except Exception as e:
-            self.logger.error(f"Failed to restore checkpoint {checkpoint_id}: {e}")
-            return False
+            raise CheckpointError(
+                f"Failed to restore checkpoint {checkpoint_id}: {e}"
+            ) from e
 
-    async def list_checkpoints(self, agent_type: str | None = None) -> list[CheckpointMetadata]:
+    async def get_checkpoint_metadata(self, checkpoint_id: str) -> CheckpointMetadata:
         """
-        List available checkpoints, optionally filtered by agent type.
-        
+        Get metadata for a checkpoint.
+
         Args:
-            agent_type: Optional filter by agent type
-            
+            checkpoint_id: ID of the checkpoint
+
         Returns:
-            List of checkpoint metadata
+            CheckpointMetadata for the checkpoint
+
+        Raises:
+            CheckpointError: If checkpoint not found or metadata invalid
         """
-        checkpoints = list(self._checkpoint_cache.values())
+        try:
+            checkpoint_path = self.checkpoint_dir / checkpoint_id
+            metadata_file = checkpoint_path / "metadata.json"
 
-        if agent_type:
-            checkpoints = [cp for cp in checkpoints if cp.agent_type == agent_type]
+            if not metadata_file.exists():
+                raise CheckpointError(
+                    f"Metadata not found for checkpoint {checkpoint_id}"
+                )
 
-        # Sort by timestamp (newest first)
-        checkpoints.sort(key=lambda x: x.timestamp, reverse=True)
+            with open(metadata_file) as f:
+                metadata_dict = json.load(f)
 
-        return checkpoints
+            # Parse timestamp
+            metadata_dict["timestamp"] = datetime.fromisoformat(
+                metadata_dict["timestamp"]
+            )
 
-    async def delete_checkpoint(self, checkpoint_id: str) -> bool:
+            return CheckpointMetadata(**metadata_dict)
+
+        except Exception as e:
+            raise CheckpointError(
+                f"Failed to load metadata for checkpoint {checkpoint_id}: {e}"
+            ) from e
+
+    async def list_checkpoints(self) -> list[CheckpointMetadata]:
         """
-        Delete a specific checkpoint.
-        
+        List all available checkpoints.
+
+        Returns:
+            List of CheckpointMetadata sorted by timestamp (newest first)
+        """
+        checkpoints = []
+        try:
+            for checkpoint_path in self.checkpoint_dir.iterdir():
+                if checkpoint_path.is_dir():
+                    try:
+                        metadata = await self.get_checkpoint_metadata(
+                            checkpoint_path.name
+                        )
+                        checkpoints.append(metadata)
+                    except CheckpointError:
+                        # Skip invalid checkpoints
+                        self.logger.warning(
+                            f"Skipping invalid checkpoint: {checkpoint_path.name}"
+                        )
+                        continue
+
+            # Sort by timestamp (newest first)
+            checkpoints.sort(key=lambda x: x.timestamp, reverse=True)
+            return checkpoints
+
+        except Exception as e:
+            self.logger.error(f"Failed to list checkpoints: {e}")
+            return []
+
+    async def delete_checkpoint(self, checkpoint_id: str) -> None:
+        """
+        Delete a checkpoint.
+
         Args:
-            checkpoint_id: ID of checkpoint to delete
-            
-        Returns:
-            True if deletion was successful, False otherwise
+            checkpoint_id: ID of the checkpoint to delete
+
+        Raises:
+            CheckpointError: If deletion fails
         """
-        if checkpoint_id not in self._checkpoint_cache:
-            self.logger.warning(f"Checkpoint not found in cache: {checkpoint_id}")
-            return False
-
-        checkpoint_path = self.checkpoint_dir / checkpoint_id
-
         try:
-            if checkpoint_path.exists():
-                shutil.rmtree(checkpoint_path)
+            checkpoint_path = self.checkpoint_dir / checkpoint_id
+            if not checkpoint_path.exists():
+                raise CheckpointError(f"Checkpoint {checkpoint_id} not found")
 
-            # Remove from cache
-            del self._checkpoint_cache[checkpoint_id]
-
-            self.logger.info(f"Checkpoint deleted: {checkpoint_id}")
-            return True
+            shutil.rmtree(checkpoint_path)
+            self.logger.info(f"Deleted checkpoint {checkpoint_id}")
 
         except Exception as e:
-            self.logger.error(f"Failed to delete checkpoint {checkpoint_id}: {e}")
-            return False
+            raise CheckpointError(
+                f"Failed to delete checkpoint {checkpoint_id}: {e}"
+            ) from e
 
-    async def _capture_git_state(self) -> dict[str, Any]:
-        """Capture current git repository state"""
+    async def cleanup_old_checkpoints(self) -> int:
+        """
+        Clean up old checkpoints based on age and count limits.
+
+        Returns:
+            Number of checkpoints deleted
+        """
         try:
-            result = {}
+            checkpoints = await self.list_checkpoints()
+            deleted_count = 0
 
-            # Get current commit
-            commit_result = await self._run_git_command(["rev-parse", "HEAD"])
-            if commit_result.returncode == 0:
-                result["commit"] = commit_result.stdout.strip()
-
-            # Get current branch
-            branch_result = await self._run_git_command(["branch", "--show-current"])
-            if branch_result.returncode == 0:
-                result["branch"] = branch_result.stdout.strip()
-
-            # Check if working directory is clean
-            status_result = await self._run_git_command(["status", "--porcelain"])
-            result["clean"] = status_result.returncode == 0 and not status_result.stdout.strip()
-
-            return result
-
-        except Exception as e:
-            self.logger.warning(f"Failed to capture git state: {e}")
-            return {}
-
-    async def _capture_quality_status(self) -> dict[str, Any]:
-        """Capture current quality gate status"""
-        # Placeholder implementation - will be enhanced with actual quality checks
-        try:
-            return {
-                "tests_passing": True,  # Would run actual test check
-                "lint_clean": True,     # Would run actual lint check
-                "coverage": 95.0,       # Would get actual coverage
-                "timestamp": datetime.now().isoformat()
-            }
-        except Exception as e:
-            self.logger.warning(f"Failed to capture quality status: {e}")
-            return {"error": str(e)}
-
-    async def _capture_taskmaster_state(self, checkpoint_path: Path, task_id: str):
-        """Capture TaskMaster state for the given task"""
-        try:
-            # This would integrate with TaskMaster to capture task state
-            taskmaster_file = checkpoint_path / "taskmaster_state.json"
-
-            # Placeholder - would capture actual TaskMaster state
-            state = {
-                "task_id": task_id,
-                "captured_at": datetime.now().isoformat(),
-                "note": "TaskMaster integration pending"
-            }
-
-            with open(taskmaster_file, "w") as f:
-                json.dump(state, f, indent=2)
-
-        except Exception as e:
-            self.logger.warning(f"Failed to capture TaskMaster state: {e}")
-
-    async def _capture_working_directory_state(self, checkpoint_path: Path):
-        """Capture working directory state"""
-        try:
-            # Capture git diff
-            diff_result = await self._run_git_command(["diff"])
-            if diff_result.returncode == 0:
-                with open(checkpoint_path / "git_diff.patch", "w") as f:
-                    f.write(diff_result.stdout)
-
-            # Capture staged changes
-            staged_result = await self._run_git_command(["diff", "--staged"])
-            if staged_result.returncode == 0:
-                with open(checkpoint_path / "git_staged.patch", "w") as f:
-                    f.write(staged_result.stdout)
-
-            # Capture git status
-            status_result = await self._run_git_command(["status", "--porcelain"])
-            if status_result.returncode == 0:
-                with open(checkpoint_path / "git_status.txt", "w") as f:
-                    f.write(status_result.stdout)
-
-        except Exception as e:
-            self.logger.warning(f"Failed to capture working directory state: {e}")
-
-    async def _restore_git_state(self, checkpoint_path: Path, metadata: CheckpointMetadata) -> bool:
-        """Restore git state from checkpoint"""
-        try:
-            # Reset to clean state
-            reset_result = await self._run_git_command(["reset", "--hard", "HEAD"])
-            if reset_result.returncode != 0:
-                self.logger.error("Failed to reset git working directory")
-                return False
-
-            # Clean untracked files
-            clean_result = await self._run_git_command(["clean", "-fd"])
-            if clean_result.returncode != 0:
-                self.logger.warning("Failed to clean untracked files")
-
-            # Apply staged changes if they existed
-            staged_patch = checkpoint_path / "git_staged.patch"
-            if staged_patch.exists() and staged_patch.stat().st_size > 0:
-                apply_result = await self._run_git_command(["apply", "--index", str(staged_patch)])
-                if apply_result.returncode != 0:
-                    self.logger.warning("Failed to apply staged changes")
-
-            # Apply working directory changes if they existed
-            diff_patch = checkpoint_path / "git_diff.patch"
-            if diff_patch.exists() and diff_patch.stat().st_size > 0:
-                apply_result = await self._run_git_command(["apply", str(diff_patch)])
-                if apply_result.returncode != 0:
-                    self.logger.warning("Failed to apply working directory changes")
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to restore git state: {e}")
-            return False
-
-    async def _restore_working_directory_state(self, checkpoint_path: Path) -> bool:
-        """Restore working directory state from checkpoint"""
-        try:
-            # The git state restoration handles most of the working directory
-            # Additional file system operations could be implemented here if needed
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to restore working directory state: {e}")
-            return False
-
-    async def _restore_taskmaster_state(self, checkpoint_path: Path, task_id: str):
-        """Restore TaskMaster state from checkpoint"""
-        try:
-            taskmaster_file = checkpoint_path / "taskmaster_state.json"
-            if taskmaster_file.exists():
-                # This would integrate with TaskMaster to restore task state
-                self.logger.info(f"TaskMaster state restoration for task {task_id} - integration pending")
-
-        except Exception as e:
-            self.logger.warning(f"Failed to restore TaskMaster state: {e}")
-
-    async def _verify_restoration(self, metadata: CheckpointMetadata) -> bool:
-        """Verify that checkpoint restoration was successful"""
-        try:
-            # Verify git state
-            current_git = await self._capture_git_state()
-
-            # Basic verification - could be enhanced with more thorough checks
-            if metadata.git_commit and current_git.get("commit") != metadata.git_commit:
-                self.logger.warning("Git commit verification failed after restoration")
-                return False
-
-            if metadata.git_branch and current_git.get("branch") != metadata.git_branch:
-                self.logger.warning("Git branch verification failed after restoration")
-                return False
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to verify restoration: {e}")
-            return False
-
-    async def _cleanup_old_checkpoints(self):
-        """Clean up old checkpoints based on retention policy"""
-        try:
-            checkpoints = list(self._checkpoint_cache.values())
-
-            # Remove checkpoints older than retention period
-            cutoff_date = datetime.now() - timedelta(days=self.retention_days)
-            old_checkpoints = [cp for cp in checkpoints if cp.timestamp < cutoff_date]
-
-            for checkpoint in old_checkpoints:
-                await self.delete_checkpoint(checkpoint.checkpoint_id)
-                self.logger.info(f"Deleted old checkpoint: {checkpoint.checkpoint_id}")
-
-            # If still over limit, remove oldest checkpoints
-            remaining_checkpoints = [cp for cp in checkpoints if cp.timestamp >= cutoff_date]
-            if len(remaining_checkpoints) > self.max_checkpoints:
-                # Sort by timestamp and remove oldest
-                remaining_checkpoints.sort(key=lambda x: x.timestamp)
-                excess_count = len(remaining_checkpoints) - self.max_checkpoints
-
-                for checkpoint in remaining_checkpoints[:excess_count]:
+            # Delete checkpoints exceeding count limit
+            if len(checkpoints) > self.max_checkpoints:
+                excess_checkpoints = checkpoints[self.max_checkpoints :]
+                for checkpoint in excess_checkpoints:
                     await self.delete_checkpoint(checkpoint.checkpoint_id)
-                    self.logger.info(f"Deleted excess checkpoint: {checkpoint.checkpoint_id}")
+                    deleted_count += 1
+                    self.logger.info(
+                        f"Deleted checkpoint {checkpoint.checkpoint_id} (count limit exceeded)"
+                    )
+
+            # Delete checkpoints exceeding age limit
+            cutoff_date = datetime.now() - timedelta(days=self.max_age_days)
+            for checkpoint in checkpoints:
+                if checkpoint.timestamp < cutoff_date:
+                    try:
+                        await self.delete_checkpoint(checkpoint.checkpoint_id)
+                        deleted_count += 1
+                        self.logger.info(
+                            f"Deleted checkpoint {checkpoint.checkpoint_id} (age limit exceeded)"
+                        )
+                    except CheckpointError:
+                        # Checkpoint might have been deleted already
+                        pass
+
+            if deleted_count > 0:
+                self.logger.info(f"Cleaned up {deleted_count} old checkpoints")
+
+            return deleted_count
 
         except Exception as e:
-            self.logger.error(f"Failed to cleanup old checkpoints: {e}")
+            self.logger.error(f"Failed to cleanup checkpoints: {e}")
+            return 0
 
-    def _calculate_directory_size(self, directory: Path) -> int:
-        """Calculate total size of directory in bytes"""
+    async def _create_file_snapshot(self, checkpoint_path: Path) -> None:
+        """Create snapshot of project files."""
+        try:
+            # Create a snapshot using git archive if in git repo
+            git_result = await self._run_git_command(["rev-parse", "--git-dir"])
+            if git_result.returncode == 0:
+                # In git repository - use git archive for consistent snapshot
+                archive_result = await self._run_git_command(
+                    [
+                        "archive",
+                        "--format=tar",
+                        "HEAD",
+                        "-o",
+                        str(checkpoint_path / "snapshot.tar"),
+                    ]
+                )
+                if archive_result.returncode == 0:
+                    return
+
+            # Fallback to direct copy
+            snapshot_dir = checkpoint_path / "snapshot"
+            snapshot_dir.mkdir(exist_ok=True)
+
+            # Copy key directories and files
+            items_to_copy = [
+                "src",
+                "tests",
+                "scripts",
+                "docs",
+                "pyproject.toml",
+                "README.md",
+            ]
+
+            for item_name in items_to_copy:
+                item_path = self.project_root / item_name
+                if item_path.exists():
+                    target_path = snapshot_dir / item_name
+                    if item_path.is_dir():
+                        shutil.copytree(
+                            item_path,
+                            target_path,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                        )
+                    else:
+                        shutil.copy2(item_path, target_path)
+
+        except Exception as e:
+            raise CheckpointError(f"Failed to create file snapshot: {e}") from e
+
+    async def _restore_file_snapshot(self, checkpoint_path: Path) -> None:
+        """Restore files from snapshot."""
+        try:
+            # Try to restore from git archive first
+            archive_file = checkpoint_path / "snapshot.tar"
+            if archive_file.exists():
+                # Extract git archive
+                result = await asyncio.create_subprocess_exec(
+                    "tar", "-xf", str(archive_file), "-C", str(self.project_root)
+                )
+                await result.wait()
+                if result.returncode == 0:
+                    return
+
+            # Fallback to directory copy
+            snapshot_dir = checkpoint_path / "snapshot"
+            if not snapshot_dir.exists():
+                raise CheckpointError("No snapshot found in checkpoint")
+
+            # Copy files back to project root
+            for item in snapshot_dir.iterdir():
+                target_path = self.project_root / item.name
+
+                # Remove existing item if it exists
+                if target_path.exists():
+                    if target_path.is_dir():
+                        shutil.rmtree(target_path)
+                    else:
+                        target_path.unlink()
+
+                # Copy from snapshot
+                if item.is_dir():
+                    shutil.copytree(item, target_path)
+                else:
+                    shutil.copy2(item, target_path)
+
+        except Exception as e:
+            raise CheckpointError(f"Failed to restore file snapshot: {e}") from e
+
+    async def _get_current_git_ref(self) -> str | None:
+        """Get current git reference."""
+        try:
+            result = await self._run_git_command(["rev-parse", "HEAD"])
+            if result.returncode == 0:
+                # Fix: Ensure proper type annotation for stdout
+                stdout: str = result.stdout
+                return stdout.strip()
+            return None
+        except Exception:
+            return None
+
+    async def _restore_git_ref(self, git_ref: str) -> None:
+        """Restore git reference."""
+        try:
+            result = await self._run_git_command(["checkout", git_ref])
+            if result.returncode != 0:
+                self.logger.warning(
+                    f"Failed to restore git ref {git_ref}: {result.stderr}"
+                )
+        except Exception as e:
+            self.logger.warning(f"Failed to restore git ref {git_ref}: {e}")
+
+    async def _count_files(self, path: Path) -> int:
+        """Count files in directory recursively."""
+        try:
+            count = 0
+            for file_path in path.rglob("*"):
+                if file_path.is_file():
+                    count += 1
+            return count
+        except Exception as e:
+            self.logger.warning(f"Failed to count files: {e}")
+            return 0
+
+    async def _calculate_size(self, path: Path) -> int:
+        """Calculate total size of directory."""
         try:
             total_size = 0
-            for file_path in directory.rglob("*"):
+            for file_path in path.rglob("*"):
                 if file_path.is_file():
                     total_size += file_path.stat().st_size
             return total_size
@@ -456,7 +439,9 @@ class CheckpointManager:
             self.logger.warning(f"Failed to calculate directory size: {e}")
             return 0
 
-    async def _run_git_command(self, args: list[str]) -> subprocess.CompletedProcess:
+    async def _run_git_command(
+        self, args: list[str]
+    ) -> subprocess.CompletedProcess[str]:
         """Run git command with proper error handling"""
         try:
             cmd = ["git"] + args
@@ -464,25 +449,24 @@ class CheckpointManager:
                 *cmd,
                 cwd=self.project_root,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
 
             stdout, stderr = await result.communicate()
 
+            # Fix: Handle None returncode
+            return_code = result.returncode if result.returncode is not None else 1
             return subprocess.CompletedProcess(
                 args=cmd,
-                returncode=result.returncode,
+                returncode=return_code,
                 stdout=stdout.decode("utf-8", errors="ignore"),
-                stderr=stderr.decode("utf-8", errors="ignore")
+                stderr=stderr.decode("utf-8", errors="ignore"),
             )
 
         except Exception as e:
             self.logger.error(f"Failed to run git command {args}: {e}")
             return subprocess.CompletedProcess(
-                args=["git"] + args,
-                returncode=1,
-                stdout="",
-                stderr=str(e)
+                args=["git"] + args, returncode=1, stdout="", stderr=str(e)
             )
 
     async def health_check(self) -> bool:
@@ -494,40 +478,10 @@ class CheckpointManager:
 
             # Check if we can create a test checkpoint
             test_checkpoint = await self.create_checkpoint("test", "health_check")
-
-            # Clean up test checkpoint
-            await self.delete_checkpoint(test_checkpoint)
+            await self.delete_checkpoint(test_checkpoint.checkpoint_id)
 
             return True
 
         except Exception as e:
-            self.logger.error(f"Checkpoint manager health check failed: {e}")
+            self.logger.error(f"Checkpoint system health check failed: {e}")
             return False
-
-    def get_statistics(self) -> dict[str, Any]:
-        """Get checkpoint system statistics"""
-        checkpoints = list(self._checkpoint_cache.values())
-
-        if not checkpoints:
-            return {
-                "total_checkpoints": 0,
-                "total_size_bytes": 0,
-                "oldest_checkpoint": None,
-                "newest_checkpoint": None,
-                "average_size_bytes": 0
-            }
-
-        total_size = sum(cp.size_bytes for cp in checkpoints)
-        checkpoints.sort(key=lambda x: x.timestamp)
-
-        return {
-            "total_checkpoints": len(checkpoints),
-            "total_size_bytes": total_size,
-            "oldest_checkpoint": checkpoints[0].timestamp.isoformat(),
-            "newest_checkpoint": checkpoints[-1].timestamp.isoformat(),
-            "average_size_bytes": total_size // len(checkpoints),
-            "checkpoints_by_agent": {
-                agent_type: len([cp for cp in checkpoints if cp.agent_type == agent_type])
-                for agent_type in set(cp.agent_type for cp in checkpoints)
-            }
-        }

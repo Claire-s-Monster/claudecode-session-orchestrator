@@ -11,11 +11,14 @@ from typing import Any, TypeVar
 
 T = TypeVar("T")
 
+
 class ComponentRegistrationError(Exception):
     pass
 
+
 class ComponentNotFoundError(Exception):
     pass
+
 
 class ComponentRegistry:
     """
@@ -49,7 +52,8 @@ class ComponentRegistry:
             ComponentRegistrationError: If already registered and overwrite is False.
         """
         reg_type = type_hint or type(component)
-        reg_name = name or getattr(component, "name", reg_type.__name__)
+        # Fix: Ensure reg_name is always a string
+        reg_name = name or getattr(component, "name", None) or reg_type.__name__
 
         async with self._lock:
             if reg_type not in self._components:
@@ -79,10 +83,14 @@ class ComponentRegistry:
         async with self._lock:
             if type_hint is not None:
                 if type_hint not in self._components:
-                    raise ComponentNotFoundError(f"No components of type '{type_hint.__name__}' registered.")
+                    raise ComponentNotFoundError(
+                        f"No components of type '{type_hint.__name__}' registered."
+                    )
                 if name is not None:
                     if name not in self._components[type_hint]:
-                        raise ComponentNotFoundError(f"No component named '{name}' of type '{type_hint.__name__}' found.")
+                        raise ComponentNotFoundError(
+                            f"No component named '{name}' of type '{type_hint.__name__}' found."
+                        )
                     del self._components[type_hint][name]
                     if not self._components[type_hint]:
                         del self._components[type_hint]
@@ -121,15 +129,21 @@ class ComponentRegistry:
         """
         async with self._lock:
             if type_hint not in self._components:
-                raise ComponentNotFoundError(f"No components of type '{type_hint.__name__}' registered.")
+                raise ComponentNotFoundError(
+                    f"No components of type '{type_hint.__name__}' registered."
+                )
             if name is not None:
                 if name not in self._components[type_hint]:
-                    raise ComponentNotFoundError(f"No component named '{name}' of type '{type_hint.__name__}' found.")
+                    raise ComponentNotFoundError(
+                        f"No component named '{name}' of type '{type_hint.__name__}' found."
+                    )
                 return self._components[type_hint][name]
             # Return the first registered component of this type
             for comp in self._components[type_hint].values():
                 return comp
-            raise ComponentNotFoundError(f"No components of type '{type_hint.__name__}' registered.")
+            raise ComponentNotFoundError(
+                f"No components of type '{type_hint.__name__}' registered."
+            )
 
     async def find_all(
         self,
@@ -148,7 +162,7 @@ class ComponentRegistry:
             if type_hint is not None:
                 return list(self._components.get(type_hint, {}).values())
             # All components of all types
-            result = []
+            result: list = []
             for comps in self._components.values():
                 result.extend(comps.values())
             return result
@@ -175,11 +189,14 @@ class ComponentRegistry:
         Returns:
             Decorator.
         """
+
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            async def wrapper(*args, **kwargs):
+            async def wrapper(*args: Any, **kwargs: Any) -> Any:
                 component = await self.get(type_hint, name)
                 return await func(component, *args, **kwargs)
+
             return wrapper
+
         return decorator
 
     async def clear(self) -> None:
