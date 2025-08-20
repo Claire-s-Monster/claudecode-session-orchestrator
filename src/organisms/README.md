@@ -1,17 +1,5 @@
 # Organisms
 
-Atomic design pattern: Organisms are complex UI components composed of molecules and atoms.
+Complex UI components composed of molecules and atoms following atomic design pattern.
 
-This directory contains sophisticated components that represent distinct sections of an interface.
-
-## Purpose
-- Complex interface sections (headers, sidebars, forms)
-- Feature-complete components
-- Integration of multiple molecules and atoms
-- Reusable layout components
-
-## Guidelines
-- Combine molecules and atoms effectively
-- Maintain clear component boundaries
-- Ensure proper data flow
-- Document component interfaces
+See [docs/architecture/atomic-design.md](../../docs/architecture/atomic-design.md) for detailed documentation.

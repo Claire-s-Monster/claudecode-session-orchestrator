@@ -253,6 +253,7 @@ scripts/quality-*.py
 scripts/security-*.py
 scripts/setup-*.py
 scripts/taskmaster-*.py
+# AI-generated documentation (temporary, not for version control)
 ai_docs/
 analyze_function_sizes.py
 
