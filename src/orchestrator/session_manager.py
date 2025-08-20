@@ -255,8 +255,6 @@ class SessionManager:
                 ) * 100
                 # Ensure non-negative overhead
                 performance_overhead_percent = max(0, performance_overhead_percent)
-            else:
-                performance_overhead_percent = 0
         else:
             performance_overhead_percent = 0
 
