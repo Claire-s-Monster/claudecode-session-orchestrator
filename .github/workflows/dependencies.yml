@@ -3,7 +3,7 @@ name: Dependency Management
 on:
   push:
     branches: [ main, master, develop, development ]
-    paths: 
+    paths:
       - 'pyproject.toml'
       - 'pixi.lock'
   pull_request:
@@ -27,7 +27,7 @@ jobs:
   pixi-compliance:
     name: PIXI-Only Compliance Check
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,11 +35,11 @@ jobs:
       - name: Verify PIXI-only compliance
         run: |
           echo "🔍 Checking PIXI-only compliance..."
-          
+
           # Check for forbidden pip files
           FORBIDDEN_FILES=(
             "requirements.txt"
-            "requirements-dev.txt" 
+            "requirements-dev.txt"
             "requirements-test.txt"
             "requirements/*.txt"
             "dev-requirements.txt"
@@ -52,7 +52,7 @@ jobs:
             "environment.yml"
             "conda.yml"
           )
-          
+
           VIOLATIONS=0
           for file in "${FORBIDDEN_FILES[@]}"; do
             if ls $file 2>/dev/null; then
@@ -60,7 +60,7 @@ jobs:
               VIOLATIONS=$((VIOLATIONS + 1))
             fi
           done
-          
+
           if [ $VIOLATIONS -eq 0 ]; then
             echo "✅ PIXI-only compliance verified - no pip/conda files found"
           else
@@ -71,15 +71,15 @@ jobs:
       - name: Validate pyproject.toml structure
         run: |
           echo "📋 Validating pyproject.toml structure..."
-          
+
           # Check required PIXI sections
           REQUIRED_SECTIONS=(
             "[tool.pixi.project]"
-            "[tool.pixi.dependencies]" 
+            "[tool.pixi.dependencies]"
             "[tool.pixi.environments]"
             "[tool.pixi.tasks]"
           )
-          
+
           MISSING_SECTIONS=0
           for section in "${REQUIRED_SECTIONS[@]}"; do
             if ! grep -q "$section" pyproject.toml; then
@@ -89,7 +89,7 @@ jobs:
               echo "✅ FOUND: $section"
             fi
           done
-          
+
           if [ $MISSING_SECTIONS -eq 0 ]; then
             echo "✅ pyproject.toml structure is valid"
           else
@@ -103,7 +103,7 @@ jobs:
   dependency-scan:
     name: Dependency Vulnerability Scan
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -129,7 +129,7 @@ jobs:
           echo "PIXI Environment List:" >> dependency-report.txt
           pixi list >> dependency-report.txt
           echo "" >> dependency-report.txt
-          echo "PIXI Info:" >> dependency-report.txt  
+          echo "PIXI Info:" >> dependency-report.txt
           pixi info >> dependency-report.txt
 
       - name: Upload dependency report
@@ -145,7 +145,7 @@ jobs:
   lock-validation:
     name: PIXI Lock File Validation
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -159,26 +159,26 @@ jobs:
       - name: Validate lock file integrity
         run: |
           echo "🔒 Validating PIXI lock file..."
-          
+
           # Check if lock file exists
           if [ ! -f "pixi.lock" ]; then
             echo "❌ pixi.lock file not found"
             exit 1
           fi
-          
+
           # Validate lock file is up to date
           pixi install --locked --manifest-path pyproject.toml
-          
+
           echo "✅ PIXI lock file is valid and up to date"
 
       - name: Check for lock file consistency
         run: |
           echo "🔄 Checking lock file consistency..."
-          
+
           # Generate new lock and compare
           cp pixi.lock pixi.lock.backup
           pixi install --manifest-path pyproject.toml
-          
+
           if diff pixi.lock pixi.lock.backup > /dev/null; then
             echo "✅ Lock file is consistent"
           else
@@ -198,7 +198,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -227,7 +227,7 @@ jobs:
     name: Dependency Update Check
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -241,20 +241,20 @@ jobs:
       - name: Check for available updates
         run: |
           echo "🔄 Checking for dependency updates..."
-          
+
           # Install current dependencies
           pixi install --manifest-path pyproject.toml
-          
+
           # Generate update report
           echo "DEPENDENCY UPDATE REPORT" > update-report.txt
           echo "========================" >> update-report.txt
           echo "Generated: $(date)" >> update-report.txt
           echo "" >> update-report.txt
-          
+
           # List current versions
           echo "Current Dependency Versions:" >> update-report.txt
           pixi list >> update-report.txt
-          
+
           echo "" >> update-report.txt
           echo "Update check completed. Review manually for potential updates." >> update-report.txt
 
@@ -273,37 +273,37 @@ jobs:
     runs-on: ubuntu-latest
     needs: [pixi-compliance, dependency-scan, lock-validation, multi-platform-deps]
     if: always()
-    
+
     steps:
       - name: Dependency Management Summary
         run: |
           echo "📦 DEPENDENCY MANAGEMENT SUMMARY"
           echo "================================"
-          
+
           if [[ "${{ needs.pixi-compliance.result }}" == "success" ]]; then
             echo "✅ PIXI-Only Compliance: VERIFIED"
-          else  
+          else
             echo "❌ PIXI-Only Compliance: VIOLATIONS FOUND"
           fi
-          
+
           if [[ "${{ needs.dependency-scan.result }}" == "success" ]]; then
             echo "✅ Vulnerability Scan: CLEAN"
           else
             echo "❌ Vulnerability Scan: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.lock-validation.result }}" == "success" ]]; then
             echo "✅ Lock File Validation: PASSED"
           else
             echo "❌ Lock File Validation: FAILED"
           fi
-          
+
           if [[ "${{ needs.multi-platform-deps.result }}" == "success" ]]; then
             echo "✅ Multi-Platform Support: VERIFIED"
           else
             echo "❌ Multi-Platform Support: ISSUES FOUND"
           fi
-          
+
           echo ""
           echo "💡 Dependency management follows PIXI-only standards."
           echo "🔒 All dependencies are managed through conda-forge ecosystem."

@@ -6,4 +6,3 @@ class SecurityValidator:
 
     def __init__(self) -> None:
         """Initialize security validator."""
-        pass

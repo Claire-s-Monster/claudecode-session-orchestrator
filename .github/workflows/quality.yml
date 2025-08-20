@@ -18,7 +18,7 @@ jobs:
   pre-commit:
     name: Pre-commit Hooks
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
   ruff-analysis:
     name: Ruff Code Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
   type-check:
     name: MyPy Type Checking
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -97,7 +97,7 @@ jobs:
     name: Quality Gate
     runs-on: ubuntu-latest
     needs: [pre-commit, ruff-analysis, type-check]
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

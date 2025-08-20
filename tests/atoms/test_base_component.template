@@ -1,0 +1,558 @@
+"""
+Test template for atomic components (atoms).
+
+Follows TDD patterns for session orchestration atoms:
+- Thread-safe testing with async patterns
+- Performance testing (<5% overhead requirement)
+- Error boundary testing
+- Component lifecycle testing
+- Metrics validation
+"""
+
+import asyncio
+import pytest
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+
+# Import the atom under test
+from src.atoms.{component_module} import (
+    {ComponentClass},
+    ComponentConfig,
+    ComponentError,
+    ComponentInitializationError,
+    ComponentOperationError,
+    ComponentStatus
+)
+
+
+class Test{ComponentClass}:
+    """Test suite for {ComponentClass} atomic component."""
+
+    @pytest.fixture
+    async def component_config(self) -> ComponentConfig:
+        """Fixture for component configuration."""
+        return ComponentConfig(
+            name="test_{component_name}",
+            max_concurrent_operations=3,
+            operation_timeout=1.0,
+            enable_metrics=True
+        )
+
+    @pytest.fixture
+    async def component(self, component_config: ComponentConfig) -> {ComponentClass}:
+        """Fixture for component instance."""
+        comp = {ComponentClass}(component_config)
+        await comp.initialize()
+        yield comp
+        await comp.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_component_initialization(self, component_config: ComponentConfig):
+        """Test component initialization."""
+        component = {ComponentClass}(component_config)
+
+        # Test initial state
+        assert component.status == ComponentStatus.INITIALIZING
+        assert component.component_id is not None
+        assert not component.is_ready
+        assert not component.is_active
+
+        # Test initialization
+        await component.initialize()
+
+        assert component.status == ComponentStatus.READY
+        assert component.is_ready
+        assert not component.is_active
+
+        # Cleanup
+        await component.shutdown()
+        assert component.status == ComponentStatus.SHUTDOWN
+
+    @pytest.mark.asyncio
+    async def test_component_initialization_error(self, component_config: ComponentConfig):
+        """Test component initialization error handling."""
+        component = {ComponentClass}(component_config)
+
+        # Mock initialization to fail
+        with patch.object(component, '_initialize_component', side_effect=Exception("Init failed")):
+            with pytest.raises(ComponentInitializationError, match="Init failed"):
+                await component.initialize()
+
+            assert component.status == ComponentStatus.ERROR
+
+    @pytest.mark.asyncio
+    async def test_component_double_initialization(self, component_config: ComponentConfig):
+        """Test that double initialization raises error."""
+        component = {ComponentClass}(component_config)
+
+        await component.initialize()
+
+        # Second initialization should fail
+        with pytest.raises(ComponentInitializationError, match="already initialized"):
+            await component.initialize()
+
+        await component.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_component_context_manager(self, component_config: ComponentConfig):
+        """Test component as async context manager."""
+        async with {ComponentClass}(component_config) as component:
+            assert component.is_ready
+            assert isinstance(component, {ComponentClass})
+
+        # Component should be shutdown after context
+        assert component.status == ComponentStatus.SHUTDOWN
+
+    @pytest.mark.asyncio
+    async def test_operation_execution(self, component: {ComponentClass}):
+        """Test operation execution with performance tracking."""
+
+        async def test_operation() -> str:
+            await asyncio.sleep(0.01)  # Simulate work
+            return "test_result"
+
+        # Execute operation
+        result = await component.execute_operation(
+            "test_operation",
+            test_operation
+        )
+
+        assert result == "test_result"
+
+        # Check metrics were recorded
+        metrics = component.get_metrics()
+        assert metrics["operations_count"] > 0
+        assert metrics["total_operation_time"] > 0
+        assert metrics["average_operation_time"] > 0
+        assert metrics["error_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_operation_timeout(self, component: {ComponentClass}):
+        """Test operation timeout handling."""
+
+        async def slow_operation() -> None:
+            await asyncio.sleep(2.0)  # Longer than timeout
+
+        with pytest.raises(ComponentOperationError, match="timed out"):
+            await component.execute_operation(
+                "slow_operation",
+                slow_operation
+            )
+
+        # Check error was recorded in metrics
+        metrics = component.get_metrics()
+        assert metrics["error_count"] > 0
+
+    @pytest.mark.asyncio
+    async def test_operation_error_handling(self, component: {ComponentClass}):
+        """Test operation error handling."""
+
+        async def failing_operation() -> None:
+            raise ValueError("Operation failed")
+
+        with pytest.raises(ComponentOperationError, match="Operation failed"):
+            await component.execute_operation(
+                "failing_operation",
+                failing_operation
+            )
+
+        # Check error was recorded
+        metrics = component.get_metrics()
+        assert metrics["error_count"] > 0
+
+    @pytest.mark.asyncio
+    async def test_concurrent_operations(self, component: {ComponentClass}):
+        """Test concurrent operation handling."""
+
+        async def concurrent_operation(delay: float) -> str:
+            await asyncio.sleep(delay)
+            return f"result_{delay}"
+
+        # Start multiple operations concurrently
+        tasks = [
+            component.execute_operation(f"op_{i}", concurrent_operation, 0.01 * i)
+            for i in range(5)
+        ]
+
+        results = await asyncio.gather(*tasks)
+
+        assert len(results) == 5
+        for i, result in enumerate(results):
+            assert result == f"result_{0.01 * i}"
+
+        # Check metrics
+        metrics = component.get_metrics()
+        assert metrics["operations_count"] >= 5
+
+    @pytest.mark.asyncio
+    async def test_operation_not_ready(self, component_config: ComponentConfig):
+        """Test operation execution when component not ready."""
+        component = {ComponentClass}(component_config)
+
+        async def test_operation() -> str:
+            return "test"
+
+        # Should fail when not initialized
+        with pytest.raises(ComponentOperationError, match="not ready"):
+            await component.execute_operation("test", test_operation)
+
+    @pytest.mark.asyncio
+    async def test_health_check(self, component: {ComponentClass}):
+        """Test component health check."""
+        health_data = await component.health_check()
+
+        assert health_data["component_id"] == component.component_id
+        assert health_data["component_name"] == component.config.name
+        assert health_data["status"] == "READY"
+        assert health_data["is_healthy"] is True
+        assert "uptime_seconds" in health_data
+        assert "metrics" in health_data
+
+    @pytest.mark.asyncio
+    async def test_metrics_collection(self, component: {ComponentClass}):
+        """Test metrics collection and calculation."""
+
+        # Execute some operations to generate metrics
+        async def test_op() -> int:
+            await asyncio.sleep(0.001)
+            return 42
+
+        for i in range(3):
+            await component.execute_operation(f"test_op_{i}", test_op)
+
+        metrics = component.get_metrics()
+
+        # Verify metrics structure
+        required_fields = [
+            "component_id", "component_name", "status", "operations_count",
+            "total_operation_time", "average_operation_time", "error_count",
+            "error_rate", "performance_overhead_percent", "meets_5_percent_requirement"
+        ]
+
+        for field in required_fields:
+            assert field in metrics, f"Missing metrics field: {field}"
+
+        # Verify metrics values
+        assert metrics["operations_count"] == 3
+        assert metrics["total_operation_time"] > 0
+        assert metrics["average_operation_time"] > 0
+        assert metrics["error_count"] == 0
+        assert metrics["error_rate"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_performance_requirement(self, component: {ComponentClass}):
+        """Test that component meets <5% performance overhead requirement."""
+
+        # Baseline: direct operation execution time
+        async def baseline_operation() -> str:
+            await asyncio.sleep(0.001)  # 1ms simulated work
+            return "baseline"
+
+        # Measure baseline time
+        baseline_start = time.time()
+        await baseline_operation()
+        baseline_time = time.time() - baseline_start
+
+        # Measure component execution time
+        component_start = time.time()
+        result = await component.execute_operation(
+            "performance_test",
+            baseline_operation
+        )
+        component_time = time.time() - component_start
+
+        assert result == "baseline"
+
+        # Calculate overhead percentage
+        overhead_percent = ((component_time - baseline_time) / baseline_time) * 100
+
+        # Should be less than 5% overhead
+        assert overhead_percent < 5.0, f"Performance overhead {overhead_percent:.2f}% exceeds 5%"
+
+        # Check metrics also report compliance
+        metrics = component.get_metrics()
+        assert metrics["meets_5_percent_requirement"] is True
+
+    @pytest.mark.asyncio
+    async def test_thread_safety(self, component: {ComponentClass}):
+        """Test thread-safe operations."""
+
+        async def thread_safe_operation(thread_id: int) -> dict[str, Any]:
+            # Simulate some concurrent work
+            await asyncio.sleep(0.001 * thread_id)
+            return {"thread_id": thread_id, "timestamp": time.time()}
+
+        # Run multiple operations concurrently
+        tasks = [
+            component.execute_operation(
+                f"thread_test_{i}",
+                thread_safe_operation,
+                i
+            )
+            for i in range(10)
+        ]
+
+        results = await asyncio.gather(*tasks)
+
+        # Verify all operations completed successfully
+        assert len(results) == 10
+
+        # Verify each result has correct thread_id
+        for i, result in enumerate(results):
+            assert result["thread_id"] == i
+            assert "timestamp" in result
+
+        # Verify no errors in metrics
+        metrics = component.get_metrics()
+        assert metrics["error_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_resource_cleanup(self, component_config: ComponentConfig):
+        """Test proper resource cleanup on shutdown."""
+        component = {ComponentClass}(component_config)
+        await component.initialize()
+
+        # Component should be ready
+        assert component.is_ready
+
+        # Shutdown component
+        await component.shutdown()
+
+        # Component should be shutdown
+        assert component.status == ComponentStatus.SHUTDOWN
+
+        # Operations should fail after shutdown
+        async def post_shutdown_op() -> str:
+            return "should_fail"
+
+        with pytest.raises(ComponentOperationError):
+            await component.execute_operation("post_shutdown", post_shutdown_op)
+
+    @pytest.mark.asyncio
+    async def test_configuration_validation(self):
+        """Test configuration validation."""
+        # Test invalid max_concurrent_operations
+        with pytest.raises(ValueError, match="max_concurrent_operations must be positive"):
+            ComponentConfig(max_concurrent_operations=0)
+
+        # Test invalid operation_timeout
+        with pytest.raises(ValueError, match="operation_timeout must be positive"):
+            ComponentConfig(operation_timeout=0)
+
+        # Test valid configuration
+        config = ComponentConfig(
+            max_concurrent_operations=5,
+            operation_timeout=10.0
+        )
+        assert config.max_concurrent_operations == 5
+        assert config.operation_timeout == 10.0
+
+    @pytest.mark.asyncio
+    async def test_logging_configuration(self, component_config: ComponentConfig):
+        """Test logging setup and configuration."""
+        component_config.log_level = "DEBUG"
+        component = {ComponentClass}(component_config)
+
+        # Logger should be configured
+        assert component.logger is not None
+        assert component.logger.name.endswith(component_config.name)
+
+    @pytest.mark.asyncio
+    async def test_metrics_calculation(self, component: {ComponentClass}):
+        """Test metrics calculation accuracy."""
+
+        # Execute operations with known durations
+        async def timed_operation(duration: float) -> float:
+            await asyncio.sleep(duration)
+            return duration
+
+        durations = [0.001, 0.002, 0.003]  # 1ms, 2ms, 3ms
+
+        for duration in durations:
+            await component.execute_operation(
+                f"timed_op_{duration}",
+                timed_operation,
+                duration
+            )
+
+        metrics = component.get_metrics()
+
+        # Check operation count
+        assert metrics["operations_count"] == len(durations)
+
+        # Check total time (should be at least sum of durations)
+        assert metrics["total_operation_time"] >= sum(durations)
+
+        # Check average time
+        expected_avg = sum(durations)
+        assert metrics["average_operation_time"] >= expected_avg
+
+    # Test specific component functionality
+
+    @pytest.mark.asyncio
+    async def test_{primary_operation}(self, component: {ComponentClass}):
+        """Test the primary component operation."""
+        # This would test the specific functionality of the component
+        # Replace with actual component operation tests
+
+        # Example:
+        # result = await component.{primary_operation}(test_params)
+        # assert result == expected_result
+        pass
+
+    @pytest.mark.asyncio
+    async def test_component_specific_error_conditions(self, component: {ComponentClass}):
+        """Test component-specific error conditions."""
+        # This would test specific error conditions for the component
+        # Replace with actual component error condition tests
+        pass
+
+    @pytest.mark.asyncio
+    async def test_component_edge_cases(self, component: {ComponentClass}):
+        """Test edge cases specific to the component."""
+        # This would test edge cases specific to the component
+        # Replace with actual edge case tests
+        pass
+
+
+class Test{ComponentClass}Integration:
+    """Integration tests for {ComponentClass}."""
+
+    @pytest.mark.asyncio
+    async def test_component_with_real_dependencies(self):
+        """Test component with real dependencies."""
+        # This would test the component with actual dependencies
+        # rather than mocked ones
+        pass
+
+    @pytest.mark.asyncio
+    async def test_component_performance_under_load(self):
+        """Test component performance under load."""
+        config = ComponentConfig(
+            max_concurrent_operations=20,
+            operation_timeout=5.0
+        )
+
+        async with {ComponentClass}(config) as component:
+
+            async def load_operation(op_id: int) -> int:
+                await asyncio.sleep(0.001)  # 1ms work
+                return op_id
+
+            # Create high load
+            tasks = [
+                component.execute_operation(f"load_op_{i}", load_operation, i)
+                for i in range(100)
+            ]
+
+            start_time = time.time()
+            results = await asyncio.gather(*tasks)
+            end_time = time.time()
+
+            # Verify all operations completed
+            assert len(results) == 100
+            assert results == list(range(100))
+
+            # Check performance metrics
+            metrics = component.get_metrics()
+            assert metrics["operations_count"] == 100
+            assert metrics["error_count"] == 0
+
+            # Check total execution time is reasonable
+            total_time = end_time - start_time
+            assert total_time < 2.0  # Should complete within 2 seconds
+
+            # Performance requirement should still be met
+            assert metrics["meets_5_percent_requirement"] is True
+
+    @pytest.mark.asyncio
+    async def test_component_memory_usage(self):
+        """Test component memory usage doesn't grow unexpectedly."""
+        import psutil
+        import os
+
+        config = ComponentConfig(enable_metrics=True)
+
+        # Get initial memory usage
+        process = psutil.Process(os.getpid())
+        initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+
+        async with {ComponentClass}(config) as component:
+
+            async def memory_test_operation(i: int) -> int:
+                # Create some temporary data
+                temp_data = list(range(1000))
+                await asyncio.sleep(0.001)
+                return len(temp_data)
+
+            # Perform many operations
+            for batch in range(10):
+                tasks = [
+                    component.execute_operation(f"mem_op_{batch}_{i}", memory_test_operation, i)
+                    for i in range(50)
+                ]
+                await asyncio.gather(*tasks)
+
+        # Get final memory usage
+        final_memory = process.memory_info().rss / 1024 / 1024  # MB
+        memory_growth = final_memory - initial_memory
+
+        # Memory growth should be reasonable (less than 50MB for this test)
+        assert memory_growth < 50, f"Memory growth {memory_growth:.2f}MB too high"
+
+
+# Performance benchmarks
+class Test{ComponentClass}Performance:
+    """Performance benchmark tests for {ComponentClass}."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.benchmark
+    async def test_operation_execution_benchmark(self):
+        """Benchmark operation execution performance."""
+        config = ComponentConfig(
+            max_concurrent_operations=10,
+            operation_timeout=1.0,
+            enable_metrics=True
+        )
+
+        async with {ComponentClass}(config) as component:
+
+            async def benchmark_operation() -> int:
+                # Simulate typical workload
+                await asyncio.sleep(0.001)  # 1ms
+                return 42
+
+            # Warmup
+            for _ in range(10):
+                await component.execute_operation("warmup", benchmark_operation)
+
+            # Benchmark
+            iterations = 100
+            start_time = time.time()
+
+            tasks = [
+                component.execute_operation(f"bench_{i}", benchmark_operation)
+                for i in range(iterations)
+            ]
+
+            results = await asyncio.gather(*tasks)
+
+            end_time = time.time()
+            total_time = end_time - start_time
+
+            # Verify results
+            assert len(results) == iterations
+            assert all(result == 42 for result in results)
+
+            # Performance assertions
+            avg_time_per_op = total_time / iterations
+            ops_per_second = iterations / total_time
+
+            assert avg_time_per_op < 0.01, f"Average time per operation {avg_time_per_op:.4f}s too high"
+            assert ops_per_second > 100, f"Operations per second {ops_per_second:.2f} too low"
+
+            # Component should meet performance requirements
+            metrics = component.get_metrics()
+            assert metrics["meets_5_percent_requirement"] is True
+            assert metrics["performance_overhead_percent"] < 5.0

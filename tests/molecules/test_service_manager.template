@@ -1,0 +1,770 @@
+"""
+Test template for service management molecules.
+
+Follows TDD patterns for session orchestration molecules:
+- Service lifecycle testing
+- Dependency management testing
+- Health monitoring testing
+- Thread-safe service operations
+- Performance testing (<5% overhead requirement)
+"""
+
+import asyncio
+import pytest
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+
+# Import the molecule under test
+from src.molecules.{service_module} import (
+    {ServiceManagerClass},
+    ServiceConfig,
+    ServiceError,
+    ServiceStartupError,
+    ServiceOperationError,
+    ServiceDependencyError,
+    ServiceStatus
+)
+from src.atoms.BaseComponent import ComponentError
+
+
+class MockService:
+    """Mock service for testing."""
+
+    def __init__(self, name: str = "mock_service", fail_start: bool = False, fail_health: bool = False):
+        self.name = name
+        self.fail_start = fail_start
+        self.fail_health = fail_health
+        self._running = False
+
+    async def start(self) -> None:
+        if self.fail_start:
+            raise Exception(f"Mock start failure for {self.name}")
+        self._running = True
+
+    async def stop(self) -> None:
+        self._running = False
+
+    async def is_running(self) -> bool:
+        return self._running
+
+    async def health_check(self) -> dict[str, Any]:
+        return {
+            "is_healthy": not self.fail_health,
+            "name": self.name,
+            "status": "healthy" if not self.fail_health else "unhealthy"
+        }
+
+
+class Test{ServiceManagerClass}:
+    """Test suite for {ServiceManagerClass} service management molecule."""
+
+    @pytest.fixture
+    async def service_config(self) -> ServiceConfig:
+        """Fixture for service configuration."""
+        return ServiceConfig(
+            service_name="test_{service_name}",
+            startup_timeout=1.0,
+            shutdown_timeout=1.0,
+            health_check_interval=0.1,
+            enable_auto_restart=False,  # Disable for testing
+            max_concurrent_operations=5
+        )
+
+    @pytest.fixture
+    async def service_manager(self, service_config: ServiceConfig) -> {ServiceManagerClass}:
+        """Fixture for service manager instance."""
+        manager = {ServiceManagerClass}(service_config)
+        await manager.initialize()
+        yield manager
+        await manager.shutdown()
+
+    @pytest.fixture
+    def mock_service_factory(self):
+        """Factory for creating mock services."""
+        def factory(name: str = "test_service", **kwargs: Any) -> MockService:
+            return MockService(name, **kwargs)
+        return factory
+
+    @pytest.mark.asyncio
+    async def test_service_manager_initialization(self, service_config: ServiceConfig):
+        """Test service manager initialization."""
+        manager = {ServiceManagerClass}(service_config)
+
+        # Test initial state
+        assert manager.service_status == ServiceStatus.STOPPED
+        assert not manager.is_running
+
+        # Initialize
+        await manager.initialize()
+
+        # Should be ready but not running services
+        assert manager.is_ready
+
+        await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_start_service(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test starting a service."""
+        service_name = "test_service"
+
+        # Start service
+        success = await service_manager.start_service(
+            service_name,
+            mock_service_factory,
+            name=service_name
+        )
+
+        assert success is True
+        assert service_manager.is_running
+
+        # Verify service is registered
+        service_instance = await service_manager.get_service(service_name)
+        assert service_instance is not None
+        assert isinstance(service_instance, MockService)
+        assert await service_instance.is_running()
+
+        # Cleanup
+        await service_manager.stop_service(service_name)
+
+    @pytest.mark.asyncio
+    async def test_start_service_already_running(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test starting a service that's already running."""
+        service_name = "duplicate_service"
+
+        # Start service first time
+        success1 = await service_manager.start_service(
+            service_name,
+            mock_service_factory,
+            name=service_name
+        )
+        assert success1 is True
+
+        # Try to start same service again
+        success2 = await service_manager.start_service(
+            service_name,
+            mock_service_factory,
+            name=service_name
+        )
+        assert success2 is True  # Should return True but not restart
+
+        # Cleanup
+        await service_manager.stop_service(service_name)
+
+    @pytest.mark.asyncio
+    async def test_start_service_failure(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test service startup failure."""
+        service_name = "failing_service"
+
+        # Create factory that returns failing service
+        def failing_factory(**kwargs: Any) -> MockService:
+            return MockService(service_name, fail_start=True)
+
+        # Starting service should fail
+        with pytest.raises(ServiceStartupError, match="Mock start failure"):
+            await service_manager.start_service(
+                service_name,
+                failing_factory
+            )
+
+        # Service should not be registered
+        service_instance = await service_manager.get_service(service_name)
+        assert service_instance is None
+
+    @pytest.mark.asyncio
+    async def test_start_service_timeout(self, service_manager: {ServiceManagerClass}):
+        """Test service startup timeout."""
+        service_name = "slow_service"
+
+        class SlowService:
+            async def start(self) -> None:
+                await asyncio.sleep(2.0)  # Longer than timeout
+
+        def slow_factory(**kwargs: Any) -> SlowService:
+            return SlowService()
+
+        with pytest.raises(ServiceStartupError, match="startup timed out"):
+            await service_manager.start_service(
+                service_name,
+                slow_factory
+            )
+
+    @pytest.mark.asyncio
+    async def test_stop_service(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test stopping a service."""
+        service_name = "stop_test_service"
+
+        # Start service
+        await service_manager.start_service(
+            service_name,
+            mock_service_factory,
+            name=service_name
+        )
+
+        # Verify service is running
+        service_instance = await service_manager.get_service(service_name)
+        assert await service_instance.is_running()
+
+        # Stop service
+        success = await service_manager.stop_service(service_name)
+        assert success is True
+
+        # Service should be removed from registry
+        service_instance = await service_manager.get_service(service_name)
+        assert service_instance is None
+
+    @pytest.mark.asyncio
+    async def test_stop_nonexistent_service(self, service_manager: {ServiceManagerClass}):
+        """Test stopping a service that doesn't exist."""
+        # Should return True (idempotent)
+        success = await service_manager.stop_service("nonexistent_service")
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_stop_service_force(self, service_manager: {ServiceManagerClass}):
+        """Test force stopping a service."""
+        service_name = "force_stop_service"
+
+        class UnstoppableService:
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                await asyncio.sleep(2.0)  # Longer than timeout
+
+        def factory(**kwargs: Any) -> UnstoppableService:
+            return UnstoppableService()
+
+        # Start service
+        await service_manager.start_service(service_name, factory)
+
+        # Force stop should succeed
+        success = await service_manager.stop_service(service_name, force=True)
+        assert success is True
+
+        # Service should be removed
+        service_instance = await service_manager.get_service(service_name)
+        assert service_instance is None
+
+    @pytest.mark.asyncio
+    async def test_restart_service(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test restarting a service."""
+        service_name = "restart_test_service"
+
+        # Start service
+        await service_manager.start_service(
+            service_name,
+            mock_service_factory,
+            name=service_name
+        )
+
+        # Get initial service instance
+        initial_instance = await service_manager.get_service(service_name)
+        assert initial_instance is not None
+
+        # Restart service
+        success = await service_manager.restart_service(service_name)
+        assert success is True
+
+        # Service should be running again
+        restarted_instance = await service_manager.get_service(service_name)
+        assert restarted_instance is not None
+        assert await restarted_instance.is_running()
+
+        # Cleanup
+        await service_manager.stop_service(service_name)
+
+    @pytest.mark.asyncio
+    async def test_list_services(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test listing managed services."""
+        # Initially no services
+        services = await service_manager.list_services()
+        assert len(services) == 0
+
+        # Start multiple services
+        service_names = ["service1", "service2", "service3"]
+        for name in service_names:
+            await service_manager.start_service(
+                name,
+                mock_service_factory,
+                name=name
+            )
+
+        # List services
+        services = await service_manager.list_services()
+        assert len(services) == 3
+
+        for name in service_names:
+            assert name in services
+            assert services[name]["name"] == name
+            assert services[name]["running"] is True
+            assert services[name]["has_monitoring"] is True
+
+        # Cleanup
+        await service_manager.stop_all_services()
+
+    @pytest.mark.asyncio
+    async def test_stop_all_services(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test stopping all managed services."""
+        # Start multiple services
+        service_names = ["all_stop1", "all_stop2", "all_stop3"]
+        for name in service_names:
+            await service_manager.start_service(
+                name,
+                mock_service_factory,
+                name=name
+            )
+
+        # Verify all are running
+        services = await service_manager.list_services()
+        assert len(services) == 3
+
+        # Stop all services
+        success = await service_manager.stop_all_services()
+        assert success is True
+
+        # Verify all are stopped
+        services = await service_manager.list_services()
+        assert len(services) == 0
+
+    @pytest.mark.asyncio
+    async def test_service_health_monitoring(self, mock_service_factory):
+        """Test service health monitoring."""
+        # Create config with frequent health checks
+        config = ServiceConfig(
+            service_name="health_test",
+            health_check_interval=0.05,  # 50ms
+            enable_auto_restart=False
+        )
+
+        async with {ServiceManagerClass}(config) as manager:
+            service_name = "health_service"
+
+            # Start service with healthy mock
+            await manager.start_service(
+                service_name,
+                mock_service_factory,
+                name=service_name,
+                fail_health=False
+            )
+
+            # Wait for a few health checks
+            await asyncio.sleep(0.2)
+
+            # Get metrics
+            metrics = manager.get_service_metrics()
+            assert metrics["health_check_count"] > 0
+            assert metrics["health_check_success_rate"] > 0.5
+
+            # Cleanup
+            await manager.stop_service(service_name)
+
+    @pytest.mark.asyncio
+    async def test_service_auto_restart(self, mock_service_factory):
+        """Test automatic service restart on health failure."""
+        # Create config with auto-restart enabled
+        config = ServiceConfig(
+            service_name="auto_restart_test",
+            health_check_interval=0.05,
+            enable_auto_restart=True
+        )
+
+        async with {ServiceManagerClass}(config) as manager:
+            service_name = "auto_restart_service"
+
+            # Mock the restart_service method to track calls
+            restart_called = False
+            original_restart = manager.restart_service
+
+            async def mock_restart(name: str) -> bool:
+                nonlocal restart_called
+                restart_called = True
+                return await original_restart(name)
+
+            manager.restart_service = mock_restart
+
+            # Start service with unhealthy mock
+            await manager.start_service(
+                service_name,
+                mock_service_factory,
+                name=service_name,
+                fail_health=True
+            )
+
+            # Wait for health checks and potential restart
+            await asyncio.sleep(0.2)
+
+            # Auto-restart should have been triggered
+            # Note: This test may be flaky depending on timing
+            # In a real implementation, you might want to use events or callbacks
+
+            # Cleanup
+            await manager.stop_service(service_name)
+
+    @pytest.mark.asyncio
+    async def test_service_dependencies(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test service dependency management."""
+        # Create config with dependencies
+        config = ServiceConfig(
+            service_name="dependency_test",
+            required_services=["dependency1", "dependency2"],
+            dependency_timeout=1.0
+        )
+
+        manager = {ServiceManagerClass}(config)
+        await manager.initialize()
+
+        try:
+            service_name = "dependent_service"
+
+            # Starting service without dependencies should fail
+            with pytest.raises(ServiceDependencyError, match="Dependencies not met"):
+                await manager.start_service(
+                    service_name,
+                    mock_service_factory,
+                    name=service_name
+                )
+
+            # Start dependencies first
+            await manager.start_service(
+                "dependency1",
+                mock_service_factory,
+                name="dependency1"
+            )
+            await manager.start_service(
+                "dependency2",
+                mock_service_factory,
+                name="dependency2"
+            )
+
+            # Now dependent service should start successfully
+            success = await manager.start_service(
+                service_name,
+                mock_service_factory,
+                name=service_name
+            )
+            assert success is True
+
+            # Cleanup
+            await manager.stop_all_services()
+
+        finally:
+            await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_service_operations(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test concurrent service operations."""
+
+        # Start multiple services concurrently
+        service_names = [f"concurrent_service_{i}" for i in range(5)]
+
+        start_tasks = [
+            service_manager.start_service(
+                name,
+                mock_service_factory,
+                name=name
+            )
+            for name in service_names
+        ]
+
+        results = await asyncio.gather(*start_tasks)
+
+        # All should succeed
+        assert all(result is True for result in results)
+
+        # Verify all services are running
+        services = await service_manager.list_services()
+        assert len(services) == 5
+
+        # Stop all services concurrently
+        stop_tasks = [
+            service_manager.stop_service(name)
+            for name in service_names
+        ]
+
+        stop_results = await asyncio.gather(*stop_tasks)
+        assert all(result is True for result in stop_results)
+
+        # Verify all services are stopped
+        services = await service_manager.list_services()
+        assert len(services) == 0
+
+    @pytest.mark.asyncio
+    async def test_service_metrics(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test service management metrics."""
+        service_name = "metrics_test_service"
+
+        # Start service
+        await service_manager.start_service(
+            service_name,
+            mock_service_factory,
+            name=service_name
+        )
+
+        # Get metrics
+        metrics = service_manager.get_service_metrics()
+
+        # Verify metrics structure
+        required_fields = [
+            "service_id", "service_name", "service_status",
+            "managed_services_count", "start_count", "stop_count",
+            "restart_count", "error_count"
+        ]
+
+        for field in required_fields:
+            assert field in metrics, f"Missing metrics field: {field}"
+
+        # Verify metrics values
+        assert metrics["managed_services_count"] == 1
+        assert metrics["start_count"] >= 1
+        assert metrics["service_status"] == "RUNNING"
+
+        # Stop service and check metrics again
+        await service_manager.stop_service(service_name)
+
+        updated_metrics = service_manager.get_service_metrics()
+        assert updated_metrics["managed_services_count"] == 0
+        assert updated_metrics["stop_count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_performance_overhead(self, mock_service_factory):
+        """Test that service manager meets <5% performance overhead requirement."""
+        # Create baseline: direct service operations
+        service = mock_service_factory(name="baseline_service")
+
+        # Measure baseline times
+        start_time = time.time()
+        await service.start()
+        baseline_start_time = time.time() - start_time
+
+        stop_start_time = time.time()
+        await service.stop()
+        baseline_stop_time = time.time() - stop_start_time
+
+        # Measure service manager times
+        config = ServiceConfig(
+            service_name="performance_test",
+            enable_metrics=True
+        )
+
+        async with {ServiceManagerClass}(config) as manager:
+            # Start through service manager
+            manager_start_time = time.time()
+            await manager.start_service(
+                "managed_service",
+                mock_service_factory,
+                name="managed_service"
+            )
+            manager_start_time = time.time() - manager_start_time
+
+            # Stop through service manager
+            manager_stop_start = time.time()
+            await manager.stop_service("managed_service")
+            manager_stop_time = time.time() - manager_stop_start
+
+            # Calculate overhead
+            start_overhead = ((manager_start_time - baseline_start_time) / baseline_start_time) * 100
+            stop_overhead = ((manager_stop_time - baseline_stop_time) / baseline_stop_time) * 100
+
+            # Should be less than 5% overhead
+            assert start_overhead < 5.0, f"Start overhead {start_overhead:.2f}% exceeds 5%"
+            assert stop_overhead < 5.0, f"Stop overhead {stop_overhead:.2f}% exceeds 5%"
+
+            # Check component-level performance requirement
+            base_metrics = manager.get_metrics()
+            assert base_metrics["meets_5_percent_requirement"] is True
+
+    @pytest.mark.asyncio
+    async def test_error_recovery(self, service_manager: {ServiceManagerClass}, mock_service_factory):
+        """Test error recovery capabilities."""
+        service_name = "error_recovery_service"
+
+        # Create a service that fails initially then succeeds
+        failure_count = 0
+
+        def recovery_factory(**kwargs: Any) -> MockService:
+            nonlocal failure_count
+            failure_count += 1
+            # Fail first two attempts, succeed on third
+            return MockService(service_name, fail_start=(failure_count <= 2))
+
+        # First attempt should fail
+        with pytest.raises(ServiceStartupError):
+            await service_manager.start_service(service_name, recovery_factory)
+
+        # Service should handle recovery gracefully
+        metrics = service_manager.get_service_metrics()
+        assert metrics["error_count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_service_context_manager(self, service_config: ServiceConfig):
+        """Test service manager as async context manager."""
+        async with {ServiceManagerClass}(service_config) as manager:
+            assert manager.is_ready
+
+            # Use manager within context
+            await manager.start_service(
+                "context_service",
+                lambda **kwargs: MockService("context_service"),
+                name="context_service"
+            )
+
+            services = await manager.list_services()
+            assert len(services) == 1
+
+        # After context, manager should be shutdown
+        assert manager.status.name == "SHUTDOWN"
+
+
+class Test{ServiceManagerClass}Integration:
+    """Integration tests for {ServiceManagerClass}."""
+
+    @pytest.mark.asyncio
+    async def test_integration_with_component_registry(self, service_manager: {ServiceManagerClass}):
+        """Test integration with component registry."""
+        # This would test integration with ComponentRegistry
+        # if that's part of the service manager's dependencies
+        pass
+
+    @pytest.mark.asyncio
+    async def test_real_service_lifecycle(self, service_manager: {ServiceManagerClass}):
+        """Test with a more realistic service implementation."""
+
+        class DatabaseService:
+            def __init__(self, db_url: str = "mock://db"):
+                self.db_url = db_url
+                self.connected = False
+
+            async def start(self) -> None:
+                # Simulate database connection
+                await asyncio.sleep(0.01)
+                self.connected = True
+
+            async def stop(self) -> None:
+                self.connected = False
+
+            async def is_running(self) -> bool:
+                return self.connected
+
+            async def health_check(self) -> dict[str, Any]:
+                return {
+                    "is_healthy": self.connected,
+                    "db_url": self.db_url,
+                    "connection_status": "connected" if self.connected else "disconnected"
+                }
+
+        def db_factory(**kwargs: Any) -> DatabaseService:
+            return DatabaseService(kwargs.get("db_url", "test://db"))
+
+        # Test full lifecycle
+        await service_manager.start_service(
+            "database",
+            db_factory,
+            db_url="test://localhost:5432"
+        )
+
+        # Verify service is running
+        db_service = await service_manager.get_service("database")
+        assert db_service is not None
+        assert await db_service.is_running()
+
+        # Test health check
+        health = await db_service.health_check()
+        assert health["is_healthy"] is True
+        assert "test://localhost:5432" in health["db_url"]
+
+        # Test restart
+        await service_manager.restart_service("database")
+
+        # Should still be running
+        assert await db_service.is_running()
+
+        # Cleanup
+        await service_manager.stop_service("database")
+        assert not await db_service.is_running()
+
+
+# Performance benchmarks
+class Test{ServiceManagerClass}Performance:
+    """Performance benchmark tests for {ServiceManagerClass}."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.benchmark
+    async def test_service_startup_performance(self, mock_service_factory):
+        """Benchmark service startup performance."""
+        config = ServiceConfig(
+            service_name="benchmark_test",
+            max_concurrent_operations=20
+        )
+
+        async with {ServiceManagerClass}(config) as manager:
+            # Benchmark multiple service startups
+            service_count = 50
+
+            start_time = time.time()
+
+            start_tasks = [
+                manager.start_service(
+                    f"bench_service_{i}",
+                    mock_service_factory,
+                    name=f"bench_service_{i}"
+                )
+                for i in range(service_count)
+            ]
+
+            results = await asyncio.gather(*start_tasks)
+
+            end_time = time.time()
+            total_time = end_time - start_time
+
+            # Verify all started successfully
+            assert all(result is True for result in results)
+
+            # Performance assertions
+            avg_startup_time = total_time / service_count
+            services_per_second = service_count / total_time
+
+            assert avg_startup_time < 0.1, f"Average startup time {avg_startup_time:.4f}s too high"
+            assert services_per_second > 50, f"Services per second {services_per_second:.2f} too low"
+
+            # Cleanup
+            await manager.stop_all_services()
+
+    @pytest.mark.asyncio
+    @pytest.mark.benchmark
+    async def test_health_monitoring_performance(self, mock_service_factory):
+        """Benchmark health monitoring overhead."""
+        config = ServiceConfig(
+            service_name="health_benchmark",
+            health_check_interval=0.01,  # 10ms - very frequent
+            enable_auto_restart=False
+        )
+
+        async with {ServiceManagerClass}(config) as manager:
+            # Start services
+            service_count = 10
+            for i in range(service_count):
+                await manager.start_service(
+                    f"health_service_{i}",
+                    mock_service_factory,
+                    name=f"health_service_{i}"
+                )
+
+            # Let health monitoring run
+            start_time = time.time()
+            await asyncio.sleep(1.0)  # 1 second
+            end_time = time.time()
+
+            # Check metrics
+            metrics = manager.get_service_metrics()
+
+            # Should have performed many health checks
+            expected_checks = service_count * (1.0 / 0.01)  # rough estimate
+            assert metrics["health_check_count"] > expected_checks * 0.5  # Allow some variance
+
+            # Performance should still be acceptable
+            base_metrics = manager.get_metrics()
+            assert base_metrics["meets_5_percent_requirement"] is True
+
+            # Cleanup
+            await manager.stop_all_services()

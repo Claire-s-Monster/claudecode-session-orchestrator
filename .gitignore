@@ -27,7 +27,7 @@ node_modules/
 
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/
 
 # Python specific (3.12+ compatible)
 __pycache__/
@@ -255,3 +255,18 @@ scripts/setup-*.py
 scripts/taskmaster-*.py
 ai_docs/
 analyze_function_sizes.py
+
+# Additional agent-generated files to ignore
+commit_*.sh
+temp_*.sh
+*_commit.sh
+*.template
+*-report.md
+git-workflow-report.md
+quality-enforcement-report.md
+task-1.4-completion-report.md
+quality-fixes-summary.md
+.ci-knowledge-base.md
+.bandit
+.aider/
+test_formatting.py

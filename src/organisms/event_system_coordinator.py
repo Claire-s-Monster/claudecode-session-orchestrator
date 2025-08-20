@@ -1,9 +1,14 @@
+"""Event system coordination for session orchestrator."""
+
 import asyncio
 from typing import Any
 
 
 class EventSystemCoordinator:
+    """Coordinates event system operations for session management."""
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ARG002
+        """Initialize the event system coordinator."""
         # ... existing initialization ...
         self._pending_events: dict[str, asyncio.Event] = {}
 
@@ -15,8 +20,9 @@ class EventSystemCoordinator:
         wait_for_processing: bool = False,
         timeout: float | None = None,
     ) -> None:
-        """
-        Publishes an event. If wait_for_processing is True, waits for the event to be processed.
+        """Publish an event.
+
+        If wait_for_processing is True, waits for the event to be processed.
         """
         event_id = event.id  # Assumes event has a unique id attribute
         if wait_for_processing:
@@ -29,19 +35,21 @@ class EventSystemCoordinator:
         if wait_for_processing:
             try:
                 await asyncio.wait_for(
-                    self._pending_events[event_id].wait(), timeout=timeout
+                    self._pending_events[event_id].wait(),
+                    timeout=timeout,
                 )
             except TimeoutError as err:
                 raise TimeoutError(
-                    f"Timeout waiting for event {event_id} to be processed"
+                    f"Timeout waiting for event {event_id} to be processed",
                 ) from err
             finally:
                 # Cleanup to avoid memory leaks
                 self._pending_events.pop(event_id, None)
 
     async def _process_event(self, event: Any) -> None:
-        """
-        Processes an event. Should be called by the event processing logic.
+        """Process an event.
+
+        Should be called by the event processing logic.
         """
         # ... existing event processing logic ...
 
@@ -54,6 +62,5 @@ class EventSystemCoordinator:
     async def publish_event_implementation(self, event: Any) -> None:
         """Actual event publishing implementation."""
         # Placeholder for actual event publishing logic
-        pass
 
     # ... rest of the class ...

@@ -31,7 +31,7 @@ jobs:
   performance-tests:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -75,7 +75,7 @@ jobs:
   memory-profiling:
     name: Memory Usage Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -102,7 +102,7 @@ jobs:
             echo "✅ Memory profiling completed successfully"
             ls -la profile.svg
           else
-            echo "⚠️ Memory profiling data not generated (may be expected for test run)"  
+            echo "⚠️ Memory profiling data not generated (may be expected for test run)"
           fi
 
       - name: Upload profiling data
@@ -119,7 +119,7 @@ jobs:
   code-profiling:
     name: Code Performance Profiling
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -163,7 +163,7 @@ jobs:
     name: Load Testing
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event.inputs.benchmark_type == 'comprehensive' || github.event.inputs.benchmark_type == 'stress'
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -182,7 +182,7 @@ jobs:
         run: |
           echo "🚀 Running load tests..."
           echo "Testing session orchestrator under load..."
-          
+
           # Simulate load testing (actual implementation would depend on your specific needs)
           for i in {1..5}; do
             echo "Load test iteration $i"
@@ -217,7 +217,7 @@ jobs:
   resource-monitoring:
     name: Resource Usage Monitoring
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -234,7 +234,7 @@ jobs:
       - name: Monitor resource usage
         run: |
           echo "📊 Monitoring resource usage during tests..."
-          
+
           # Start resource monitoring in background
           (
             for i in {1..10}; do
@@ -242,7 +242,7 @@ jobs:
               sleep 2
             done
           ) &
-          
+
           # Run some basic operations
           pixi run python -c "
             import time
@@ -253,7 +253,7 @@ jobs:
                 print(f'Iteration {i+1}')
             print('Resource test completed')
           "
-          
+
           # Wait for monitoring to complete
           wait
 
@@ -263,7 +263,7 @@ jobs:
           echo "========================" >> resource-report.txt
           echo "Generated: $(date)" >> resource-report.txt
           echo "" >> resource-report.txt
-          
+
           if [ -f "resource-usage.log" ]; then
             echo "Resource Usage Log:" >> resource-report.txt
             cat resource-usage.log >> resource-report.txt
@@ -285,7 +285,7 @@ jobs:
     name: Performance Regression Check
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -305,11 +305,11 @@ jobs:
       - name: Run performance regression check
         run: |
           echo "🔄 Checking for performance regressions..."
-          
+
           # Run current branch performance
           echo "Testing current branch performance..."
           pixi run -e perf test-performance > current-perf.log 2>&1 || true
-          
+
           echo "✅ Performance regression check completed"
           echo "📋 Review performance test results for any regressions"
 
@@ -322,7 +322,7 @@ jobs:
           echo "Base: ${{ github.base_ref }}" >> regression-report.txt
           echo "Head: ${{ github.head_ref }}" >> regression-report.txt
           echo "" >> regression-report.txt
-          
+
           if [ -f "current-perf.log" ]; then
             echo "Performance Test Results:" >> regression-report.txt
             cat current-perf.log >> regression-report.txt
@@ -343,37 +343,37 @@ jobs:
     runs-on: ubuntu-latest
     needs: [performance-tests, memory-profiling, code-profiling, resource-monitoring]
     if: always()
-    
+
     steps:
       - name: Performance Summary
         run: |
           echo "⚡ PERFORMANCE ANALYSIS SUMMARY"
           echo "==============================="
-          
+
           if [[ "${{ needs.performance-tests.result }}" == "success" ]]; then
             echo "✅ Performance Tests: COMPLETED"
           else
             echo "❌ Performance Tests: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.memory-profiling.result }}" == "success" ]]; then
             echo "✅ Memory Profiling: COMPLETED"
           else
             echo "❌ Memory Profiling: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.code-profiling.result }}" == "success" ]]; then
             echo "✅ Code Profiling: COMPLETED"
           else
             echo "❌ Code Profiling: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.resource-monitoring.result }}" == "success" ]]; then
             echo "✅ Resource Monitoring: COMPLETED"
           else
             echo "❌ Resource Monitoring: ISSUES FOUND"
           fi
-          
+
           echo ""
           echo "📊 Performance analysis artifacts available for download."
           echo "⚡ Review reports for optimization opportunities."

@@ -26,7 +26,7 @@ jobs:
   bandit-scan:
     name: Bandit Code Security Scan
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,8 +38,11 @@ jobs:
           cache: true
           environments: ci
 
-      - name: Install dependencies
-        run: pixi install -e ci
+      - name: Install dependencies with security tools
+        run: |
+          pixi install -e ci
+          echo "Verifying security tools are available:"
+          pixi run -e ci bandit --version
 
       - name: Run Bandit security scan
         run: pixi run -e ci security-scan
@@ -62,7 +65,7 @@ jobs:
   safety-scan:
     name: Safety Dependency Scan
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -74,8 +77,11 @@ jobs:
           cache: true
           environments: ci
 
-      - name: Install dependencies
-        run: pixi install -e ci
+      - name: Install dependencies with security tools
+        run: |
+          pixi install -e ci
+          echo "Verifying security tools are available:"
+          pixi run -e ci safety --version || echo "Safety version check failed, but tool may still work"
 
       - name: Run Safety dependency scan
         run: pixi run -e ci dependency-scan
@@ -99,7 +105,7 @@ jobs:
   semgrep-scan:
     name: Semgrep Security Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -126,7 +132,7 @@ jobs:
   codeql-analysis:
     name: CodeQL Security Analysis
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -157,7 +163,7 @@ jobs:
   trivy-scan:
     name: Trivy Vulnerability Scanner
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -184,7 +190,7 @@ jobs:
     name: Comprehensive Security Audit
     runs-on: ubuntu-latest
     needs: [bandit-scan, safety-scan]
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -196,8 +202,12 @@ jobs:
           cache: true
           environments: ci
 
-      - name: Install dependencies
-        run: pixi install -e ci
+      - name: Install dependencies with security tools
+        run: |
+          pixi install -e ci
+          echo "Verifying security tools are available:"
+          pixi run -e ci bandit --version
+          pixi run -e ci safety --version || echo "Safety version check failed, but tool may still work"
 
       - name: Run comprehensive security audit
         run: pixi run -e ci security-audit
@@ -211,7 +221,7 @@ jobs:
   security-compliance:
     name: Security Policy Compliance
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -259,49 +269,49 @@ jobs:
     runs-on: ubuntu-latest
     needs: [bandit-scan, safety-scan, semgrep-scan, codeql-analysis, trivy-scan, security-audit]
     if: always()
-    
+
     steps:
       - name: Security Results Summary
         run: |
           echo "🔒 SECURITY ANALYSIS SUMMARY"
           echo "============================"
-          
+
           if [[ "${{ needs.bandit-scan.result }}" == "success" ]]; then
             echo "✅ Bandit Code Scan: PASSED"
           else
             echo "❌ Bandit Code Scan: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.safety-scan.result }}" == "success" ]]; then
             echo "✅ Safety Dependency Scan: PASSED"
           else
             echo "❌ Safety Dependency Scan: VULNERABILITIES FOUND"
           fi
-          
+
           if [[ "${{ needs.semgrep-scan.result }}" == "success" ]]; then
             echo "✅ Semgrep Analysis: PASSED"
           else
             echo "❌ Semgrep Analysis: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.codeql-analysis.result }}" == "success" ]]; then
             echo "✅ CodeQL Analysis: PASSED"
           else
             echo "❌ CodeQL Analysis: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.trivy-scan.result }}" == "success" ]]; then
             echo "✅ Trivy Vulnerability Scan: PASSED"
           else
             echo "❌ Trivy Vulnerability Scan: ISSUES FOUND"
           fi
-          
+
           if [[ "${{ needs.security-audit.result }}" == "success" ]]; then
             echo "✅ Comprehensive Security Audit: PASSED"
           else
             echo "❌ Comprehensive Security Audit: ISSUES FOUND"
           fi
-          
+
           echo ""
           echo "📋 Security scan results are available in the Security tab."
           echo "🔍 Review SARIF reports for detailed findings."

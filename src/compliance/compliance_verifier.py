@@ -1,8 +1,7 @@
-"""
-Framework Compliance Verifier
+"""Framework Compliance Verifier.
 
-Comprehensive compliance verification for the Universal Development Framework
-including MCP-first strategy, quality standards, and security compliance.
+Comprehensive compliance verification for the Universal Development Framework including
+MCP-first strategy, quality standards, and security compliance.
 """
 
 import asyncio
@@ -41,18 +40,19 @@ class ComplianceResult:
 
 
 class ComplianceVerifier:
-    """
-    Comprehensive framework compliance verifier.
+    """Comprehensive framework compliance verifier.
 
-    Enforces Universal Development Framework standards including:
-    - MCP-first strategy (95% MCP usage target)
-    - Zero-tolerance quality policy
-    - PIXI-only dependency management
-    - Security compliance
-    - Git workflow standards
+    Enforces Universal Development Framework standards including: - MCP-first strategy
+    (95% MCP usage target) - Zero-tolerance quality policy - PIXI-only dependency
+    management - Security compliance - Git workflow standards
     """
 
     def __init__(self, project_root: Path, config: dict | None = None):
+        """Initialize the compliance verifier.
+
+        Args:     project_root: Root directory of the project to verify     config:
+        Optional configuration dictionary, uses default if None
+        """
         self.project_root = Path(project_root)
         self.config = config or self._load_default_config()
         self.logger = logging.getLogger(__name__)
@@ -78,11 +78,9 @@ class ComplianceVerifier:
         }
 
     async def verify_full_compliance(self) -> ComplianceResult:
-        """
-        Run comprehensive compliance verification.
+        """Run comprehensive compliance verification.
 
-        Returns:
-            ComplianceResult with overall compliance status
+        Returns:     ComplianceResult with overall compliance status
         """
         self.logger.info("Starting comprehensive compliance verification")
 
@@ -107,8 +105,8 @@ class ComplianceVerifier:
                     ComplianceViolation(
                         type="check_error",
                         severity="critical",
-                        message=f"Compliance check failed: {str(check_result)}",
-                    )
+                        message=f"Compliance check failed: {check_result!s}",
+                    ),
                 )
                 continue
 
@@ -134,7 +132,7 @@ class ComplianceVerifier:
         )
 
         self.logger.info(
-            f"Compliance verification complete: {score}/100 score, {len(violations)} violations"
+            f"Compliance verification complete: {score}/100 score, {len(violations)} violations",
         )
         return result
 
@@ -154,7 +152,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message="MCP configuration file (.mcp.json) missing",
                         remediation="Create .mcp.json with MCP server configurations",
-                    )
+                    ),
                 )
             else:
                 # Validate MCP server configurations
@@ -170,7 +168,7 @@ class ComplianceVerifier:
                             type="mcp_configuration",
                             severity="medium",
                             message="No MCP servers configured",
-                        )
+                        ),
                     )
 
                 # Check for TaskMaster AI integration
@@ -180,7 +178,7 @@ class ComplianceVerifier:
                             type="taskmaster_integration",
                             severity="medium",
                             message="TaskMaster AI MCP server not configured",
-                        )
+                        ),
                     )
 
             # Analyze source code for MCP vs Bash usage patterns
@@ -196,7 +194,7 @@ class ComplianceVerifier:
                         severity=severity,
                         message=f"MCP usage {mcp_percentage}% below {self.mcp_usage_target}% target",
                         remediation="Increase MCP tool usage, minimize strategic Bash usage",
-                    )
+                    ),
                 )
 
         except Exception as e:
@@ -204,8 +202,8 @@ class ComplianceVerifier:
                 ComplianceViolation(
                     type="mcp_check_error",
                     severity="critical",
-                    message=f"MCP compliance check failed: {str(e)}",
-                )
+                    message=f"MCP compliance check failed: {e!s}",
+                ),
             )
 
         return {"violations": violations, "warnings": warnings, "metrics": metrics}
@@ -224,7 +222,7 @@ class ComplianceVerifier:
                         type="pixi_environment",
                         severity="medium",
                         message="PIXI environment not available for quality checks",
-                    )
+                    ),
                 )
                 return {
                     "violations": violations,
@@ -241,7 +239,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message=f"Tests failed: {test_result.get('failures', 0)} failures",
                         remediation="Fix all test failures before proceeding",
-                    )
+                    ),
                 )
 
             # Lint checks (zero F,E9 violations)
@@ -257,7 +255,7 @@ class ComplianceVerifier:
                             severity="critical",
                             message=f"F-level lint violations: {f_violations}",
                             remediation="Fix all F-level lint violations",
-                        )
+                        ),
                     )
 
                 if e9_violations > 0:
@@ -267,7 +265,7 @@ class ComplianceVerifier:
                             severity="critical",
                             message=f"E9-level lint violations: {e9_violations}",
                             remediation="Fix all E9-level lint violations",
-                        )
+                        ),
                     )
 
             # Coverage check (100% required)
@@ -279,7 +277,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message=f"Test coverage {coverage_result['percentage']}% below 100%",
                         remediation="Achieve 100% test coverage",
-                    )
+                    ),
                 )
 
             # Pre-commit hooks
@@ -291,7 +289,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message="Pre-commit hooks failed",
                         remediation="Fix pre-commit hook failures",
-                    )
+                    ),
                 )
 
             metrics.update(
@@ -300,7 +298,7 @@ class ComplianceVerifier:
                     "lint_result": lint_result,
                     "coverage_result": coverage_result,
                     "precommit_result": precommit_result,
-                }
+                },
             )
 
         except Exception as e:
@@ -308,8 +306,8 @@ class ComplianceVerifier:
                 ComplianceViolation(
                     type="quality_check_error",
                     severity="critical",
-                    message=f"Quality gates check failed: {str(e)}",
-                )
+                    message=f"Quality gates check failed: {e!s}",
+                ),
             )
 
         return {"violations": violations, "warnings": warnings, "metrics": metrics}
@@ -335,7 +333,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message="No PIXI configuration file found (pixi.toml or pyproject.toml)",
                         remediation="Create PIXI configuration file",
-                    )
+                    ),
                 )
             else:
                 metrics["pixi_config_file"] = pixi_config
@@ -360,7 +358,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message=f"pip dependency files found: {pip_violations_found}",
                         remediation="Remove pip files and migrate dependencies to PIXI",
-                    )
+                    ),
                 )
 
             metrics["pip_violations"] = pip_violations_found
@@ -370,8 +368,8 @@ class ComplianceVerifier:
                 ComplianceViolation(
                     type="pixi_check_error",
                     severity="critical",
-                    message=f"PIXI compliance check failed: {str(e)}",
-                )
+                    message=f"PIXI compliance check failed: {e!s}",
+                ),
             )
 
         return {"violations": violations, "warnings": warnings, "metrics": metrics}
@@ -398,7 +396,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message=f"Sensitive files detected: {[str(f) for f in sensitive_files]}",
                         remediation="Remove sensitive files or add to .gitignore",
-                    )
+                    ),
                 )
 
             # Check .env file security
@@ -415,7 +413,7 @@ class ComplianceVerifier:
                             severity="critical",
                             message=".env file not in .gitignore",
                             remediation="Add .env to .gitignore",
-                        )
+                        ),
                     )
 
             # Run security scanning if available
@@ -427,14 +425,14 @@ class ComplianceVerifier:
                         severity="critical",
                         message="Security scan detected issues",
                         remediation="Fix security vulnerabilities",
-                    )
+                    ),
                 )
 
             metrics.update(
                 {
                     "sensitive_files": len(sensitive_files),
                     "security_scan_result": security_result,
-                }
+                },
             )
 
         except Exception as e:
@@ -442,8 +440,8 @@ class ComplianceVerifier:
                 ComplianceViolation(
                     type="security_check_error",
                     severity="critical",
-                    message=f"Security compliance check failed: {str(e)}",
-                )
+                    message=f"Security compliance check failed: {e!s}",
+                ),
             )
 
         return {"violations": violations, "warnings": warnings, "metrics": metrics}
@@ -464,7 +462,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message="Git repository not initialized",
                         remediation="Initialize git repository",
-                    )
+                    ),
                 )
                 return {
                     "violations": violations,
@@ -480,7 +478,7 @@ class ComplianceVerifier:
                         type="gitignore_missing",
                         severity="medium",
                         message=".gitignore file missing",
-                    )
+                    ),
                 )
             else:
                 # Check for standard ignore patterns
@@ -496,11 +494,11 @@ class ComplianceVerifier:
                             type="gitignore_patterns",
                             severity="low",
                             message=f"Missing gitignore patterns: {missing_patterns}",
-                        )
+                        ),
                     )
 
             metrics.update(
-                {"git_initialized": True, "gitignore_exists": gitignore_file.exists()}
+                {"git_initialized": True, "gitignore_exists": gitignore_file.exists()},
             )
 
         except Exception as e:
@@ -508,8 +506,8 @@ class ComplianceVerifier:
                 ComplianceViolation(
                     type="git_check_error",
                     severity="critical",
-                    message=f"Git workflow check failed: {str(e)}",
-                )
+                    message=f"Git workflow check failed: {e!s}",
+                ),
             )
 
         return {"violations": violations, "warnings": warnings, "metrics": metrics}
@@ -530,7 +528,7 @@ class ComplianceVerifier:
                         severity="critical",
                         message="TaskMaster not initialized",
                         remediation="Run 'task-master init'",
-                    )
+                    ),
                 )
                 return {
                     "violations": violations,
@@ -556,11 +554,11 @@ class ComplianceVerifier:
                         type="taskmaster_files",
                         severity="medium",
                         message=f"TaskMaster files missing: {missing_files}",
-                    )
+                    ),
                 )
 
             metrics.update(
-                {"taskmaster_initialized": True, "missing_files": missing_files}
+                {"taskmaster_initialized": True, "missing_files": missing_files},
             )
 
         except Exception as e:
@@ -568,8 +566,8 @@ class ComplianceVerifier:
                 ComplianceViolation(
                     type="taskmaster_check_error",
                     severity="critical",
-                    message=f"TaskMaster integration check failed: {str(e)}",
-                )
+                    message=f"TaskMaster integration check failed: {e!s}",
+                ),
             )
 
         return {"violations": violations, "warnings": warnings, "metrics": metrics}
@@ -589,7 +587,7 @@ class ComplianceVerifier:
                         type="claude_instructions",
                         severity="medium",
                         message="Project instructions file (CLAUDE.md) missing",
-                    )
+                    ),
                 )
 
             # Check for .claude directory
@@ -600,7 +598,7 @@ class ComplianceVerifier:
                         type="claude_configuration",
                         severity="medium",
                         message="Claude Code configuration directory missing",
-                    )
+                    ),
                 )
             else:
                 # Check for custom commands
@@ -620,7 +618,7 @@ class ComplianceVerifier:
                     "claude_md_exists": claude_md.exists(),
                     "claude_dir_exists": claude_dir.exists(),
                     "standard_directories": existing_dirs,
-                }
+                },
             )
 
         except Exception as e:
@@ -628,8 +626,8 @@ class ComplianceVerifier:
                 ComplianceViolation(
                     type="framework_check_error",
                     severity="critical",
-                    message=f"Framework adherence check failed: {str(e)}",
-                )
+                    message=f"Framework adherence check failed: {e!s}",
+                ),
             )
 
         return {"violations": violations, "warnings": warnings, "metrics": metrics}
@@ -707,7 +705,10 @@ class ComplianceVerifier:
             # Parse results based on command type - Fix: handle None returncode
             return_code = result.returncode if result.returncode is not None else 1
             return self._parse_quality_result(
-                command, return_code, stdout.decode(), stderr.decode()
+                command,
+                return_code,
+                stdout.decode(),
+                stderr.decode(),
             )
 
         except Exception as e:
@@ -728,22 +729,26 @@ class ComplianceVerifier:
                 "failures": stdout.count("FAILED"),
                 "output": stdout,
             }
-        elif command == "lint":
+        if command == "lint":
             return {
                 "passed": return_code == 0,
                 "f_violations": len(
-                    [line for line in stdout.split("\n") if "F" in line and ":" in line]
+                    [
+                        line
+                        for line in stdout.split("\n")
+                        if "F" in line and ":" in line
+                    ],
                 ),
                 "e9_violations": len(
                     [
                         line
                         for line in stdout.split("\n")
                         if "E9" in line and ":" in line
-                    ]
+                    ],
                 ),
                 "output": stdout,
             }
-        elif command == "coverage":
+        if command == "coverage":
             # Parse coverage percentage from output
             percentage = 100  # Default
             for line in stdout.split("\n"):
@@ -756,11 +761,12 @@ class ComplianceVerifier:
                 "percentage": percentage,
                 "output": stdout,
             }
-        else:
-            return {"passed": return_code == 0, "output": stdout}
+        return {"passed": return_code == 0, "output": stdout}
 
     def _calculate_compliance_score(
-        self, violations: list[ComplianceViolation], warnings: list[ComplianceViolation]
+        self,
+        violations: list[ComplianceViolation],
+        warnings: list[ComplianceViolation],
     ) -> int:
         """Calculate overall compliance score (0-100)."""
         # Weight violations by severity
@@ -824,15 +830,19 @@ class ComplianceVerifier:
                             v
                             for v in result.violations
                             if v.type.startswith("test_") or v.type.startswith("lint_")
-                        ]
+                        ],
                     )
                     == 0,
                     "pixi_only_policy": len(
-                        [v for v in result.violations if v.type == "pip_dependencies"]
+                        [v for v in result.violations if v.type == "pip_dependencies"],
                     )
                     == 0,
                     "security_compliance": len(
-                        [v for v in result.violations if v.type.startswith("security_")]
+                        [
+                            v
+                            for v in result.violations
+                            if v.type.startswith("security_")
+                        ],
                     )
                     == 0,
                     "taskmaster_integration": len(
@@ -840,28 +850,27 @@ class ComplianceVerifier:
                             v
                             for v in result.violations
                             if v.type.startswith("taskmaster_")
-                        ]
+                        ],
                     )
                     == 0,
                 },
-            }
+            },
         }
 
     def _get_compliance_grade(self, score: int) -> str:
         """Get compliance grade based on score."""
         if score >= 95:
             return "A+"
-        elif score >= 90:
+        if score >= 90:
             return "A"
-        elif score >= 85:
+        if score >= 85:
             return "B+"
-        elif score >= 80:
+        if score >= 80:
             return "B"
-        elif score >= 75:
+        if score >= 75:
             return "C+"
-        elif score >= 70:
+        if score >= 70:
             return "C"
-        elif score >= 60:
+        if score >= 60:
             return "D"
-        else:
-            return "F"
+        return "F"

@@ -6,4 +6,3 @@ class QualityEnforcer:
 
     def __init__(self) -> None:
         """Initialize quality enforcer."""
-        pass

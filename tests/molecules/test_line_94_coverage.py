@@ -1,5 +1,4 @@
-"""
-Specific test to cover line 94 in placeholder_file_manager.py
+"""Specific test to cover line 94 in placeholder_file_manager.py
 
 The condition on line 94 requires:
 1. Directory with only subdirectories (no files) - line 87 elif
@@ -22,8 +21,7 @@ class TestLine94Coverage:
     """Test specifically designed to achieve coverage of line 94."""
 
     def test_target_directory_with_only_subdirs_line_94(self):
-        """
-        Create a scenario that specifically triggers line 94:
+        """Create a scenario that specifically triggers line 94:
         - A target directory that has only subdirectories (no files)
         - The directory is in target_directories
         - The directory is not yet in directories_to_process
@@ -64,9 +62,7 @@ class TestLine94Coverage:
             # after processing subdirectories
 
     def test_alternative_line_94_trigger(self):
-        """
-        Alternative approach to trigger line 94 using a different target directory.
-        """
+        """Alternative approach to trigger line 94 using a different target directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
             manager = PlaceholderFileManager()
 
@@ -94,8 +90,7 @@ class TestLine94Coverage:
             assert os.path.exists(os.path.join(other_target, ".gitkeep"))
 
     def test_complex_directory_walk_scenario(self):
-        """
-        Create a complex scenario that walks through directories in a way
+        """Create a complex scenario that walks through directories in a way
         that can trigger the line 94 condition during os.walk().
         """
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,5 +1,4 @@
-"""
-Test fixtures for placeholder file creation tests.
+"""Test fixtures for placeholder file creation tests.
 
 This module provides reusable fixtures for testing placeholder file creation
 functionality across different test scenarios.
@@ -133,19 +132,19 @@ def mock_placeholder_manager():
         def create_gitkeep_files(self, base_path: str) -> PlaceholderResult:
             """Mock method that should be implemented."""
             raise NotImplementedError(
-                "TDD RED phase - PlaceholderFileManager not implemented"
+                "TDD RED phase - PlaceholderFileManager not implemented",
             )
 
         def create_readme_files(self, base_path: str) -> PlaceholderResult:
             """Mock method that should be implemented."""
             raise NotImplementedError(
-                "TDD RED phase - PlaceholderFileManager not implemented"
+                "TDD RED phase - PlaceholderFileManager not implemented",
             )
 
         def scan_empty_directories(self, base_path: str) -> list[str]:
             """Mock method that should be implemented."""
             raise NotImplementedError(
-                "TDD RED phase - PlaceholderFileManager not implemented"
+                "TDD RED phase - PlaceholderFileManager not implemented",
             )
 
     return MockPlaceholderFileManager()

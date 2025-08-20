@@ -231,7 +231,8 @@ async def test_deregister_nonexistent_name_anywhere():
 
     # Try to deregister by name that doesn't exist anywhere
     with pytest.raises(
-        ComponentNotFoundError, match="No component named 'nonexistent' found"
+        ComponentNotFoundError,
+        match="No component named 'nonexistent' found",
     ):
         await reg.deregister(name="nonexistent")
 

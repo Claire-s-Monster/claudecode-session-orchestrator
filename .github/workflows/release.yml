@@ -40,12 +40,12 @@ jobs:
     name: Pre-Release Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
-    
+
     outputs:
       should_release: ${{ steps.validation.outputs.should_release }}
       current_version: ${{ steps.version.outputs.current_version }}
       next_version: ${{ steps.version.outputs.next_version }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -69,7 +69,7 @@ jobs:
           current_version=$(pixi run -e ci python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           echo "current_version=$current_version" >> $GITHUB_OUTPUT
           echo "Current version: $current_version"
-          
+
           # Calculate next version based on release type
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             release_type="${{ github.event.inputs.release_type }}"
@@ -77,13 +77,13 @@ jobs:
             # For tag-based releases, determine type from tag
             release_type="patch"
           fi
-          
+
           # Simple semantic versioning calculation
           IFS='.' read -ra VERSION_PARTS <<< "$current_version"
           major=${VERSION_PARTS[0]}
           minor=${VERSION_PARTS[1]}
           patch=${VERSION_PARTS[2]}
-          
+
           case "$release_type" in
             "major")
               next_version="$((major + 1)).0.0"
@@ -98,7 +98,7 @@ jobs:
               next_version="$major.$minor.$((patch + 1))-rc.1"
               ;;
           esac
-          
+
           echo "next_version=$next_version" >> $GITHUB_OUTPUT
           echo "Next version: $next_version"
 
@@ -106,7 +106,7 @@ jobs:
         id: validation
         run: |
           echo "🔍 Validating release prerequisites..."
-          
+
           # Skip tests if requested
           if [[ "${{ github.event.inputs.skip_tests }}" == "true" ]]; then
             echo "⚠️ Skipping test validation as requested"
@@ -115,7 +115,7 @@ jobs:
             pixi run -e ci test
             echo "✅ All tests passed"
           fi
-          
+
           # Check for clean working directory
           if [[ -n $(git status --porcelain) ]]; then
             echo "❌ Working directory not clean"
@@ -123,18 +123,18 @@ jobs:
             exit 1
           fi
           echo "✅ Working directory clean"
-          
+
           # Validate PIXI-only compliance
           pixi run -e ci validate-pixi-only
           echo "✅ PIXI-only compliance verified"
-          
+
           # Platform validation
           if [[ -f ".claude/agent-scripts/pixi/platform-detector.sh" ]]; then
             echo "🔧 Running platform validation..."
             bash .claude/agent-scripts/pixi/platform-detector.sh --performance
             echo "✅ Platform configuration validated"
           fi
-          
+
           echo "should_release=true" >> $GITHUB_OUTPUT
           echo "🎯 Release validation completed successfully"
 
@@ -146,11 +146,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: pre-release-validation
     if: needs.pre-release-validation.outputs.should_release == 'true'
-    
+
     outputs:
       release_version: ${{ steps.bump.outputs.release_version }}
       changelog_content: ${{ steps.changelog.outputs.content }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -172,7 +172,7 @@ jobs:
         id: changelog
         run: |
           echo "📝 Generating changelog..."
-          
+
           # Get last tag
           last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           if [[ -z "$last_tag" ]]; then
@@ -182,17 +182,17 @@ jobs:
             echo "📋 Changes since $last_tag"
             commits=$(git log --oneline --no-merges ${last_tag}..HEAD)
           fi
-          
+
           # Generate structured changelog
           changelog_file="CHANGELOG_${{ needs.pre-release-validation.outputs.next_version }}.md"
-          
+
           cat > "$changelog_file" << EOF
           # Release v${{ needs.pre-release-validation.outputs.next_version }}
-          
+
           ## What's Changed
-          
+
           EOF
-          
+
           # Categorize commits
           echo "$commits" | while read -r commit; do
             if [[ "$commit" =~ ^[a-f0-9]+[[:space:]]feat: ]]; then
@@ -217,33 +217,33 @@ jobs:
               echo "" >> "$changelog_file"
             fi
           done
-          
+
           # Add release info
           cat >> "$changelog_file" << EOF
-          
+
           ## Release Information
-          
+
           - **Release Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           - **Previous Version**: ${{ needs.pre-release-validation.outputs.current_version }}
           - **Release Type**: ${{ github.event.inputs.release_type || 'automatic' }}
           - **Platform**: linux-64 (PIXI-only)
           - **Python**: >=3.12,<3.13
-          
+
           ## Verification
-          
+
           - ✅ All CI checks passed
           - ✅ Quality gates enforced (100% test coverage)
           - ✅ Security scans completed
           - ✅ PIXI-only compliance verified
           - ✅ Platform validation completed
-          
+
           EOF
-          
+
           # Save changelog content for release notes
           echo "content<<EOF" >> $GITHUB_OUTPUT
           cat "$changelog_file" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
+
           echo "✅ Changelog generated: $changelog_file"
 
       - name: Bump version
@@ -251,17 +251,17 @@ jobs:
         run: |
           new_version="${{ needs.pre-release-validation.outputs.next_version }}"
           echo "🔢 Bumping version to: $new_version"
-          
+
           # Update pyproject.toml version
           sed -i "s/version = \".*\"/version = \"$new_version\"/" pyproject.toml
-          
+
           # Verify version was updated
           updated_version=$(pixi run -e ci python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           if [[ "$updated_version" != "$new_version" ]]; then
             echo "❌ Version bump failed. Expected: $new_version, Got: $updated_version"
             exit 1
           fi
-          
+
           echo "release_version=$new_version" >> $GITHUB_OUTPUT
           echo "✅ Version bumped successfully to: $new_version"
 
@@ -269,15 +269,15 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
+
           git add pyproject.toml
           git commit -m "chore: bump version to v${{ steps.bump.outputs.release_version }}
 
           Automated version bump for release v${{ steps.bump.outputs.release_version }}
-          
+
           🤖 Generated with GitHub Actions
           Co-Authored-By: GitHub Actions <action@github.com>"
-          
+
           git push origin ${{ github.ref_name }}
 
   # =============================================================================
@@ -287,7 +287,7 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: [pre-release-validation, prepare-release]
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -302,19 +302,19 @@ jobs:
         run: |
           release_version="${{ needs.prepare-release.outputs.release_version }}"
           tag_name="v$release_version"
-          
+
           echo "🏷️ Creating tag: $tag_name"
           git tag -a "$tag_name" -m "Release $tag_name
 
           Automated release with comprehensive validation
-          
+
           - Version: $release_version
           - Platform: linux-64 (PIXI-only)
           - Python: >=3.12,<3.13
           - Quality: Zero-tolerance policy enforced
-          
+
           🤖 Generated with GitHub Actions"
-          
+
           git push origin "$tag_name"
 
       - name: Create GitHub Release
@@ -326,26 +326,26 @@ jobs:
           release_name: Release v${{ needs.prepare-release.outputs.release_version }}
           body: |
             ${{ needs.prepare-release.outputs.changelog_content }}
-            
+
             ## Installation
-            
+
             **PIXI-ONLY Installation (REQUIRED)**
-            
+
             ```bash
             # Add to your PIXI project (recommended method)
             pixi add claudecode-session-orchestrator==${{ needs.prepare-release.outputs.release_version }}
-            
+
             # Or use in specific environment
             pixi add --environment dev claudecode-session-orchestrator==${{ needs.prepare-release.outputs.release_version }}
-            
+
             # Verify installation
             pixi run python -c "import claudecode_session_orchestrator; print('Installation successful')"
             ```
-            
-            > **Note**: This project maintains strict PIXI-only dependency policy for enhanced reliability, reproducibility, and platform consistency. Direct pip installation is not supported.
-            
+
+            > **Important**: This project enforces PIXI-only dependency management for enhanced reliability, reproducibility, and platform consistency. Traditional pip installation is not compatible with this project's dependency architecture.
+
             ## Verification
-            
+
             This release has been automatically validated with:
             - ✅ Comprehensive test suite (100% coverage requirement)
             - ✅ Zero-tolerance quality gates
@@ -353,7 +353,7 @@ jobs:
             - ✅ PIXI-only compliance verification
             - ✅ Platform validation (linux-64)
             - ✅ Performance benchmarking
-            
+
             **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ needs.pre-release-validation.outputs.current_version }}...v${{ needs.prepare-release.outputs.release_version }}
           draft: false
           prerelease: ${{ contains(needs.prepare-release.outputs.release_version, 'rc') || contains(needs.prepare-release.outputs.release_version, 'alpha') || contains(needs.prepare-release.outputs.release_version, 'beta') }}
@@ -366,7 +366,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare-release, create-release]
     if: success()
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -390,7 +390,7 @@ jobs:
         run: |
           echo "📦 Building package..."
           pixi run -e build build-package
-          
+
           # Verify build artifacts
           ls -la dist/
           echo "✅ Package built successfully"
@@ -420,7 +420,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare-release, create-release, publish]
     if: always() && needs.create-release.result == 'success'
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -436,7 +436,7 @@ jobs:
             echo "All notable changes to this project will be documented in this file." >> CHANGELOG.md
             echo "" >> CHANGELOG.md
           fi
-          
+
           # Prepend new release to changelog
           temp_changelog=$(mktemp)
           echo "# Changelog" > "$temp_changelog"
@@ -445,7 +445,7 @@ jobs:
           echo "" >> "$temp_changelog"
           tail -n +4 CHANGELOG.md >> "$temp_changelog"
           mv "$temp_changelog" CHANGELOG.md
-          
+
           # Commit updated changelog
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
@@ -473,7 +473,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [pre-release-validation, prepare-release, create-release, publish]
     if: failure()
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -484,7 +484,7 @@ jobs:
       - name: Cleanup failed release
         run: |
           echo "🧹 Cleaning up failed release..."
-          
+
           # Remove tag if created
           release_version="${{ needs.prepare-release.outputs.release_version }}"
           if [[ -n "$release_version" ]]; then
@@ -495,14 +495,14 @@ jobs:
               git push origin --delete "$tag_name" || true
             fi
           fi
-          
+
           # Revert version bump if it was committed
           if git log --oneline -1 | grep -q "chore: bump version"; then
             echo "🔄 Reverting version bump commit"
             git revert HEAD --no-edit
             git push origin ${{ github.ref_name }}
           fi
-          
+
           echo "✅ Cleanup completed"
 
       - name: Report failure

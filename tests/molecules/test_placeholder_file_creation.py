@@ -1,5 +1,4 @@
-"""
-Comprehensive test suite for Add Initial Placeholder Files task.
+"""Comprehensive test suite for Add Initial Placeholder Files task.
 
 This module tests the molecule-level functionality of placeholder file creation
 following atomic design hierarchy. Tests are in TDD RED phase - they should
@@ -86,10 +85,11 @@ class TestGitkeepStrategy:
     """Test .gitkeep file placement strategy."""
 
     def test_gitkeep_files_created_in_all_directories(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a project directory structure
+        """GIVEN a project directory structure
         WHEN placeholder files are created using .gitkeep strategy
         THEN .gitkeep files should exist in all empty directories
         """
@@ -107,10 +107,11 @@ class TestGitkeepStrategy:
         assert len(result.created_files) == len(directories)
 
     def test_gitkeep_files_have_correct_content(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a project directory structure
+        """GIVEN a project directory structure
         WHEN .gitkeep files are created
         THEN they should contain appropriate placeholder content
         """
@@ -127,10 +128,11 @@ class TestGitkeepStrategy:
                 ), f"Incorrect .gitkeep content in {directory}"
 
     def test_gitkeep_files_not_overwritten_if_exists(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN directories with existing .gitkeep files
+        """GIVEN directories with existing .gitkeep files
         WHEN placeholder file creation is run again
         THEN existing .gitkeep files should not be overwritten
         """
@@ -152,10 +154,11 @@ class TestGitkeepStrategy:
             assert f.read().strip() == custom_content
 
     def test_gitkeep_in_target_directories_only(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a project with nested directories
+        """GIVEN a project with nested directories
         WHEN creating gitkeep files
         THEN directories should be processed properly including edge case line 94
         """
@@ -175,10 +178,11 @@ class TestGitkeepStrategy:
         assert os.path.exists(gitkeep_path)
 
     def test_gitkeep_permission_error_handling(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a directory without write permissions
+        """GIVEN a directory without write permissions
         WHEN attempting to create .gitkeep files
         THEN permission errors should be handled gracefully (line 122-123)
         """
@@ -201,10 +205,11 @@ class TestGitkeepStrategy:
             os.chmod(test_dir, 0o755)
 
     def test_gitkeep_directory_hierarchy_coverage_line_94(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a complex directory structure with subdirectories
+        """GIVEN a complex directory structure with subdirectories
         WHEN creating gitkeep files
         THEN line 94 logic should be covered for directory hierarchy processing
         """
@@ -228,10 +233,11 @@ class TestGitkeepStrategy:
         assert os.path.exists(src_gitkeep)
 
     def test_gitkeep_general_exception_handling_line_122_123(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a situation that causes a general exception during gitkeep creation
+        """GIVEN a situation that causes a general exception during gitkeep creation
         WHEN creating gitkeep files
         THEN lines 122-123 should handle general exceptions
         """
@@ -259,10 +265,11 @@ class TestReadmeStrategy:
     """Test README.md file placement strategy."""
 
     def test_readme_files_created_in_all_directories(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a project directory structure
+        """GIVEN a project directory structure
         WHEN placeholder files are created using README.md strategy
         THEN README.md files should exist in all empty directories
         """
@@ -278,10 +285,11 @@ class TestReadmeStrategy:
         assert len(result.created_files) == len(directories)
 
     def test_readme_files_have_directory_specific_content(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a project directory structure
+        """GIVEN a project directory structure
         WHEN README.md files are created
         THEN they should contain directory-specific placeholder content
         """
@@ -307,10 +315,11 @@ class TestReadmeStrategy:
                 )
 
     def test_readme_files_contain_placeholder_description(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN README.md files created as placeholders
+        """GIVEN README.md files created as placeholders
         WHEN examining their content
         THEN they should contain standard placeholder description
         """
@@ -329,8 +338,7 @@ class TestReadmeStrategy:
                 )
 
     def test_readme_non_existent_base_path(self, placeholder_file_manager):
-        """
-        GIVEN a non-existent base path
+        """GIVEN a non-existent base path
         WHEN creating README files
         THEN FileNotFoundError should be raised (line 141)
         """
@@ -340,10 +348,11 @@ class TestReadmeStrategy:
             placeholder_file_manager.create_readme_files(non_existent_path)
 
     def test_readme_skips_non_existent_directories(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a project structure with some missing target directories
+        """GIVEN a project structure with some missing target directories
         WHEN creating README files
         THEN non-existent directories should be skipped (line 168)
         """
@@ -360,10 +369,11 @@ class TestReadmeStrategy:
         assert len(result.created_files) == len(directories) - 1
 
     def test_readme_existing_files_not_overwritten(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN directories with existing README.md files
+        """GIVEN directories with existing README.md files
         WHEN placeholder file creation is run
         THEN existing README files should not be overwritten (line 175)
         """
@@ -385,10 +395,11 @@ class TestReadmeStrategy:
             assert custom_content in f.read()
 
     def test_readme_permission_error_handling(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a directory without write permissions
+        """GIVEN a directory without write permissions
         WHEN attempting to create README files
         THEN permission errors should be handled gracefully (lines 208-214)
         """
@@ -411,10 +422,11 @@ class TestReadmeStrategy:
             os.chmod(test_dir, 0o755)
 
     def test_readme_general_exception_handling(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a situation that causes a general exception during README creation
+        """GIVEN a situation that causes a general exception during README creation
         WHEN creating README files
         THEN general exceptions should be handled (line 214)
         """
@@ -435,10 +447,12 @@ class TestGitIntegration:
     """Test git tracking and integration functionality."""
 
     def test_placeholder_files_are_git_tracked(
-        self, temp_project_structure, mock_git_operations, placeholder_file_manager
+        self,
+        temp_project_structure,
+        mock_git_operations,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN placeholder files created in project directories
+        """GIVEN placeholder files created in project directories
         WHEN checking git status
         THEN all placeholder files should be tracked by git
         """
@@ -458,10 +472,12 @@ class TestGitIntegration:
         )
 
     def test_git_add_called_for_each_placeholder_file(
-        self, temp_project_structure, mock_git_operations, placeholder_file_manager
+        self,
+        temp_project_structure,
+        mock_git_operations,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN placeholder files being created
+        """GIVEN placeholder files being created
         WHEN git tracking is enabled
         THEN git add should be called for each placeholder file
         """
@@ -483,10 +499,12 @@ class TestGitIntegration:
         )
 
     def test_git_failure_handling(
-        self, temp_project_structure, mock_git_operations, placeholder_file_manager
+        self,
+        temp_project_structure,
+        mock_git_operations,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN git operations that fail
+        """GIVEN git operations that fail
         WHEN creating placeholder files
         THEN failures should be handled gracefully
         """
@@ -503,10 +521,11 @@ class TestGitIntegration:
         assert len(result.warnings) > 0, "Git warnings should be captured"
 
     def test_git_not_available_handling(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN git command not available on system
+        """GIVEN git command not available on system
         WHEN creating placeholder files
         THEN FileNotFoundError should be handled gracefully (line 238-240)
         """
@@ -529,10 +548,11 @@ class TestGitIntegration:
             )
 
     def test_git_general_exception_handling(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a general exception during git operations
+        """GIVEN a general exception during git operations
         WHEN creating placeholder files
         THEN general exceptions should be handled (line 242)
         """
@@ -557,10 +577,11 @@ class TestEdgeCases:
     """Test edge cases and error conditions."""
 
     def test_permission_denied_directory(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN a directory without write permissions
+        """GIVEN a directory without write permissions
         WHEN attempting to create placeholder files
         THEN the error should be handled gracefully
         """
@@ -581,8 +602,7 @@ class TestEdgeCases:
             os.chmod(test_dir, 0o755)
 
     def test_non_existent_directory(self, placeholder_file_manager):
-        """
-        GIVEN a non-existent directory path
+        """GIVEN a non-existent directory path
         WHEN attempting to create placeholder files
         THEN appropriate error should be raised
         """
@@ -592,10 +612,11 @@ class TestEdgeCases:
             placeholder_file_manager.create_gitkeep_files(non_existent_path)
 
     def test_existing_files_not_overwritten(
-        self, temp_project_structure, placeholder_file_manager
+        self,
+        temp_project_structure,
+        placeholder_file_manager,
     ):
-        """
-        GIVEN directories with existing files
+        """GIVEN directories with existing files
         WHEN creating placeholder files
         THEN existing files should not be overwritten
         """
@@ -617,8 +638,7 @@ class TestEdgeCases:
             assert f.read() == original_content, "Existing file was modified"
 
     def test_deep_directory_nesting(self, placeholder_file_manager):
-        """
-        GIVEN deeply nested directory structure
+        """GIVEN deeply nested directory structure
         WHEN creating placeholder files
         THEN all nested directories should be handled correctly
         """
@@ -638,8 +658,7 @@ class TestEdgeCases:
 
 # TDD Implementation Verification Test
 def test_placeholder_file_manager_implemented():
-    """
-    This test verifies PlaceholderFileManager is properly implemented.
+    """This test verifies PlaceholderFileManager is properly implemented.
     Should pass after successful TDD GREEN phase implementation.
     """
     try:
@@ -655,7 +674,7 @@ def test_placeholder_file_manager_implemented():
         )
     except ImportError:
         pytest.fail(
-            "PlaceholderFileManager should be implemented after TDD GREEN phase"
+            "PlaceholderFileManager should be implemented after TDD GREEN phase",
         )
 
 

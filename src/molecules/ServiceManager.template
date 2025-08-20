@@ -1,0 +1,678 @@
+"""
+{service_name}: Service management molecule for session orchestration.
+
+Atomic design level: MOLECULE
+Dependencies: Atoms only (BaseComponent, Logger, EventEmitter, etc.)
+Purpose: {service_purpose}
+Thread-safe: Yes
+Async patterns: Full async/await support with service lifecycle management
+Python version: 3.12+
+"""
+
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any, TypeVar, Generic
+import logging
+from uuid import uuid4
+
+# Import atoms (allowed dependency)
+from ..atoms.BaseComponent import BaseComponent, ComponentConfig, ComponentError
+
+
+# Type definitions
+T = TypeVar("T")
+ServiceId = str
+
+
+class ServiceStatus(Enum):
+    """Status enumeration for service lifecycle."""
+
+    STOPPED = auto()
+    STARTING = auto()
+    RUNNING = auto()
+    STOPPING = auto()
+    ERROR = auto()
+    RESTARTING = auto()
+
+
+class ServiceError(Exception):
+    """Base exception for service-level errors."""
+    pass
+
+
+class ServiceStartupError(ServiceError):
+    """Raised when service startup fails."""
+    pass
+
+
+class ServiceOperationError(ServiceError):
+    """Raised when service operation fails."""
+    pass
+
+
+class ServiceDependencyError(ServiceError):
+    """Raised when service dependencies are not met."""
+    pass
+
+
+@dataclass
+class ServiceConfig(ComponentConfig):
+    """Configuration for service management molecules."""
+
+    # Service identification
+    service_id: str = field(default_factory=lambda: str(uuid4()))
+    service_name: str = "{service_name}"
+    service_version: str = "1.0.0"
+
+    # Service lifecycle
+    startup_timeout: float = 30.0
+    shutdown_timeout: float = 10.0
+    restart_attempts: int = 3
+    restart_delay: float = 1.0
+
+    # Health monitoring
+    health_check_interval: float = 30.0
+    health_check_timeout: float = 5.0
+    enable_auto_restart: bool = True
+
+    # Dependency management
+    required_services: list[str] = field(default_factory=list)
+    optional_services: list[str] = field(default_factory=list)
+    dependency_timeout: float = 60.0
+
+    def __post_init__(self) -> None:
+        """Validate service configuration."""
+        super().__post_init__()
+        if self.startup_timeout <= 0:
+            raise ValueError("startup_timeout must be positive")
+        if self.shutdown_timeout <= 0:
+            raise ValueError("shutdown_timeout must be positive")
+
+
+@dataclass
+class ServiceMetrics:
+    """Service-specific metrics."""
+
+    service_id: str
+    start_count: int = 0
+    stop_count: int = 0
+    restart_count: int = 0
+    error_count: int = 0
+    uptime_seconds: float = 0.0
+    last_start_time: float | None = None
+    last_error_time: float | None = None
+    health_check_count: int = 0
+    health_check_failures: int = 0
+
+
+class ServiceManager(BaseComponent[bool], Generic[T]):
+    """Service management molecule for orchestrating service lifecycle.
+
+    Manages:
+    - Service startup/shutdown with dependencies
+    - Health monitoring and auto-restart
+    - Performance tracking (<5% overhead)
+    - Thread-safe operations with async patterns
+    - Service registry and discovery
+    """
+
+    def __init__(self, config: ServiceConfig | None = None) -> None:
+        """Initialize the service manager.
+
+        Args:
+            config: Service configuration. Uses defaults if None.
+        """
+        super().__init__(config)
+        self.service_config = config or ServiceConfig()
+
+        # Service state
+        self._service_status = ServiceStatus.STOPPED
+        self._services: dict[str, Any] = {}
+        self._service_tasks: dict[str, asyncio.Task] = {}
+        self._dependency_graph: dict[str, list[str]] = {}
+
+        # Service lifecycle
+        self._startup_event = asyncio.Event()
+        self._shutdown_event = asyncio.Event()
+        self._restart_events: dict[str, asyncio.Event] = {}
+
+        # Monitoring
+        self.service_metrics = ServiceMetrics(service_id=self.service_config.service_id)
+        self._health_monitor_task: asyncio.Task | None = None
+        self._service_semaphore = asyncio.Semaphore(self.service_config.max_concurrent_operations)
+
+        self.logger.info(f"ServiceManager initialized for {self.service_config.service_name}")
+
+    @property
+    def service_status(self) -> ServiceStatus:
+        """Get current service status."""
+        return self._service_status
+
+    @property
+    def is_running(self) -> bool:
+        """Check if service is running."""
+        return self._service_status == ServiceStatus.RUNNING
+
+    async def _initialize_component(self) -> None:
+        """Initialize service manager components."""
+        # Setup dependency graph
+        await self._build_dependency_graph()
+
+        # Initialize service registry
+        await self._initialize_service_registry()
+
+        # Start health monitoring if enabled
+        if self.service_config.health_check_interval > 0:
+            self._health_monitor_task = asyncio.create_task(self._health_monitor_loop())
+
+        self.logger.info("Service manager component initialized")
+
+    async def _shutdown_component(self) -> None:
+        """Cleanup service manager resources."""
+        # Stop health monitoring
+        if self._health_monitor_task and not self._health_monitor_task.done():
+            self._health_monitor_task.cancel()
+            try:
+                await self._health_monitor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Shutdown all managed services
+        await self.stop_all_services()
+
+        # Clear service registry
+        self._services.clear()
+        self._service_tasks.clear()
+
+        self.logger.info("Service manager component shutdown complete")
+
+    async def start_service(
+        self,
+        service_name: str,
+        service_factory: Callable[..., Any] | None = None,
+        **service_kwargs: Any
+    ) -> bool:
+        """Start a managed service.
+
+        Args:
+            service_name: Name of the service to start.
+            service_factory: Factory function to create service instance.
+            **service_kwargs: Additional arguments for service creation.
+
+        Returns:
+            True if service started successfully.
+
+        Raises:
+            ServiceStartupError: If service startup fails.
+            ServiceDependencyError: If dependencies not met.
+        """
+        async def _start_operation() -> bool:
+            if service_name in self._services:
+                if await self._is_service_running(service_name):
+                    self.logger.warning(f"Service {service_name} already running")
+                    return True
+
+            self.logger.info(f"Starting service: {service_name}")
+            self._service_status = ServiceStatus.STARTING
+
+            try:
+                # Check dependencies
+                await self._wait_for_dependencies(service_name)
+
+                # Create service instance if factory provided
+                if service_factory:
+                    service_instance = service_factory(**service_kwargs)
+                    self._services[service_name] = service_instance
+
+                    # Start service if it has async lifecycle
+                    if hasattr(service_instance, "start"):
+                        await asyncio.wait_for(
+                            service_instance.start(),
+                            timeout=self.service_config.startup_timeout
+                        )
+
+                # Create service monitoring task
+                self._service_tasks[service_name] = asyncio.create_task(
+                    self._monitor_service(service_name)
+                )
+
+                # Update metrics
+                self.service_metrics.start_count += 1
+                self.service_metrics.last_start_time = asyncio.get_event_loop().time()
+
+                self._service_status = ServiceStatus.RUNNING
+                self._startup_event.set()
+
+                self.logger.info(f"Service {service_name} started successfully")
+                return True
+
+            except asyncio.TimeoutError as e:
+                self._service_status = ServiceStatus.ERROR
+                self.service_metrics.error_count += 1
+                self.service_metrics.last_error_time = asyncio.get_event_loop().time()
+                raise ServiceStartupError(
+                    f"Service {service_name} startup timed out"
+                ) from e
+
+            except Exception as e:
+                self._service_status = ServiceStatus.ERROR
+                self.service_metrics.error_count += 1
+                self.service_metrics.last_error_time = asyncio.get_event_loop().time()
+                raise ServiceStartupError(
+                    f"Failed to start service {service_name}: {e}"
+                ) from e
+
+        return await self.execute_operation(
+            f"start_service_{service_name}",
+            _start_operation
+        )
+
+    async def stop_service(self, service_name: str, force: bool = False) -> bool:
+        """Stop a managed service.
+
+        Args:
+            service_name: Name of the service to stop.
+            force: Whether to force stop if graceful shutdown fails.
+
+        Returns:
+            True if service stopped successfully.
+
+        Raises:
+            ServiceOperationError: If service stop fails.
+        """
+        async def _stop_operation() -> bool:
+            if service_name not in self._services:
+                self.logger.warning(f"Service {service_name} not found")
+                return True
+
+            self.logger.info(f"Stopping service: {service_name}")
+            self._service_status = ServiceStatus.STOPPING
+
+            try:
+                service_instance = self._services[service_name]
+
+                # Stop service if it has async lifecycle
+                if hasattr(service_instance, "stop"):
+                    if force:
+                        # Force stop without timeout
+                        await service_instance.stop()
+                    else:
+                        await asyncio.wait_for(
+                            service_instance.stop(),
+                            timeout=self.service_config.shutdown_timeout
+                        )
+
+                # Cancel monitoring task
+                if service_name in self._service_tasks:
+                    self._service_tasks[service_name].cancel()
+                    try:
+                        await self._service_tasks[service_name]
+                    except asyncio.CancelledError:
+                        pass
+                    del self._service_tasks[service_name]
+
+                # Remove from registry
+                del self._services[service_name]
+
+                # Update metrics
+                self.service_metrics.stop_count += 1
+                self._service_status = ServiceStatus.STOPPED
+
+                self.logger.info(f"Service {service_name} stopped successfully")
+                return True
+
+            except asyncio.TimeoutError as e:
+                if force:
+                    # Force cleanup
+                    self._services.pop(service_name, None)
+                    self._service_tasks.pop(service_name, None)
+                    return True
+                else:
+                    raise ServiceOperationError(
+                        f"Service {service_name} stop timed out"
+                    ) from e
+
+            except Exception as e:
+                self._service_status = ServiceStatus.ERROR
+                self.service_metrics.error_count += 1
+                raise ServiceOperationError(
+                    f"Failed to stop service {service_name}: {e}"
+                ) from e
+
+        return await self.execute_operation(
+            f"stop_service_{service_name}",
+            _stop_operation
+        )
+
+    async def restart_service(self, service_name: str) -> bool:
+        """Restart a managed service.
+
+        Args:
+            service_name: Name of the service to restart.
+
+        Returns:
+            True if service restarted successfully.
+        """
+        async def _restart_operation() -> bool:
+            self.logger.info(f"Restarting service: {service_name}")
+            self._service_status = ServiceStatus.RESTARTING
+
+            # Stop the service first
+            await self.stop_service(service_name, force=False)
+
+            # Wait restart delay
+            if self.service_config.restart_delay > 0:
+                await asyncio.sleep(self.service_config.restart_delay)
+
+            # Start the service again
+            # Note: This assumes service factory is stored or can be recreated
+            # In real implementation, you'd need to store service factories
+            success = await self.start_service(service_name)
+
+            if success:
+                self.service_metrics.restart_count += 1
+                self.logger.info(f"Service {service_name} restarted successfully")
+
+            return success
+
+        return await self.execute_operation(
+            f"restart_service_{service_name}",
+            _restart_operation
+        )
+
+    async def get_service(self, service_name: str) -> Any | None:
+        """Get a service instance by name.
+
+        Args:
+            service_name: Name of the service.
+
+        Returns:
+            Service instance or None if not found.
+        """
+        return self._services.get(service_name)
+
+    async def list_services(self) -> dict[str, dict[str, Any]]:
+        """List all managed services with their status.
+
+        Returns:
+            Dictionary mapping service names to their status info.
+        """
+        services_info = {}
+
+        for service_name, service_instance in self._services.items():
+            is_running = await self._is_service_running(service_name)
+            services_info[service_name] = {
+                "name": service_name,
+                "running": is_running,
+                "instance": type(service_instance).__name__,
+                "has_monitoring": service_name in self._service_tasks,
+            }
+
+        return services_info
+
+    async def stop_all_services(self) -> bool:
+        """Stop all managed services.
+
+        Returns:
+            True if all services stopped successfully.
+        """
+        self.logger.info("Stopping all managed services")
+
+        # Stop services in reverse dependency order
+        service_names = list(self._services.keys())
+
+        for service_name in service_names:
+            try:
+                await self.stop_service(service_name, force=False)
+            except Exception as e:
+                self.logger.error(f"Error stopping service {service_name}: {e}")
+                # Continue with other services
+
+        return len(self._services) == 0
+
+    # Helper methods
+
+    async def _build_dependency_graph(self) -> None:
+        """Build service dependency graph."""
+        # Initialize with configured dependencies
+        for service in self.service_config.required_services:
+            self._dependency_graph[service] = []
+
+        # This would be expanded based on actual service dependencies
+        self.logger.debug(f"Dependency graph: {self._dependency_graph}")
+
+    async def _initialize_service_registry(self) -> None:
+        """Initialize the service registry."""
+        # Setup internal service registry structures
+        self._services.clear()
+        self._service_tasks.clear()
+        self.logger.debug("Service registry initialized")
+
+    async def _wait_for_dependencies(self, service_name: str) -> None:
+        """Wait for service dependencies to be available.
+
+        Args:
+            service_name: Name of the service whose dependencies to wait for.
+
+        Raises:
+            ServiceDependencyError: If dependencies not met within timeout.
+        """
+        required_deps = self._dependency_graph.get(service_name, [])
+
+        if not required_deps:
+            return
+
+        self.logger.debug(f"Waiting for dependencies of {service_name}: {required_deps}")
+
+        start_time = asyncio.get_event_loop().time()
+        timeout = self.service_config.dependency_timeout
+
+        while asyncio.get_event_loop().time() - start_time < timeout:
+            all_ready = True
+
+            for dep_service in required_deps:
+                if not await self._is_service_running(dep_service):
+                    all_ready = False
+                    break
+
+            if all_ready:
+                return
+
+            # Wait a bit before checking again
+            await asyncio.sleep(0.1)
+
+        # Timeout reached
+        missing_deps = [
+            dep for dep in required_deps
+            if not await self._is_service_running(dep)
+        ]
+
+        raise ServiceDependencyError(
+            f"Dependencies not met for {service_name}: {missing_deps}"
+        )
+
+    async def _is_service_running(self, service_name: str) -> bool:
+        """Check if a service is running.
+
+        Args:
+            service_name: Name of the service to check.
+
+        Returns:
+            True if service is running.
+        """
+        if service_name not in self._services:
+            return False
+
+        service_instance = self._services[service_name]
+
+        # Check if service has status method
+        if hasattr(service_instance, "is_running"):
+            try:
+                return await service_instance.is_running()
+            except Exception:
+                return False
+
+        # If no status method, assume running if in registry
+        return True
+
+    async def _monitor_service(self, service_name: str) -> None:
+        """Monitor a service for health and auto-restart if needed.
+
+        Args:
+            service_name: Name of the service to monitor.
+        """
+        self.logger.debug(f"Starting monitoring for service: {service_name}")
+
+        while not self._shutdown_event.is_set():
+            try:
+                # Perform health check
+                is_healthy = await self._perform_health_check(service_name)
+
+                if not is_healthy and self.service_config.enable_auto_restart:
+                    self.logger.warning(f"Service {service_name} unhealthy, restarting")
+                    await self.restart_service(service_name)
+
+                # Wait for next health check
+                await asyncio.sleep(self.service_config.health_check_interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error monitoring service {service_name}: {e}")
+                await asyncio.sleep(self.service_config.health_check_interval)
+
+        self.logger.debug(f"Monitoring stopped for service: {service_name}")
+
+    async def _perform_health_check(self, service_name: str) -> bool:
+        """Perform health check on a service.
+
+        Args:
+            service_name: Name of the service to check.
+
+        Returns:
+            True if service is healthy.
+        """
+        self.service_metrics.health_check_count += 1
+
+        try:
+            if service_name not in self._services:
+                self.service_metrics.health_check_failures += 1
+                return False
+
+            service_instance = self._services[service_name]
+
+            # Check if service has health_check method
+            if hasattr(service_instance, "health_check"):
+                result = await asyncio.wait_for(
+                    service_instance.health_check(),
+                    timeout=self.service_config.health_check_timeout
+                )
+                return bool(result.get("is_healthy", True))
+
+            # Basic health check: service exists and is running
+            return await self._is_service_running(service_name)
+
+        except Exception as e:
+            self.logger.debug(f"Health check failed for {service_name}: {e}")
+            self.service_metrics.health_check_failures += 1
+            return False
+
+    async def _health_monitor_loop(self) -> None:
+        """Main health monitoring loop."""
+        self.logger.info("Health monitor started")
+
+        while not self._shutdown_event.is_set():
+            try:
+                # Update uptime
+                self.service_metrics.uptime_seconds = asyncio.get_event_loop().time()
+
+                # Wait for next monitoring cycle
+                await asyncio.sleep(self.service_config.health_check_interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error in health monitor loop: {e}")
+                await asyncio.sleep(self.service_config.health_check_interval)
+
+        self.logger.info("Health monitor stopped")
+
+    def get_service_metrics(self) -> dict[str, Any]:
+        """Get service management metrics.
+
+        Returns:
+            Dictionary containing service metrics.
+        """
+        base_metrics = self.get_metrics()
+
+        service_metrics = {
+            "service_id": self.service_metrics.service_id,
+            "service_name": self.service_config.service_name,
+            "service_status": self._service_status.name,
+            "managed_services_count": len(self._services),
+            "running_services_count": len([
+                name for name in self._services.keys()
+                if self._service_tasks.get(name) and not self._service_tasks[name].done()
+            ]),
+            "start_count": self.service_metrics.start_count,
+            "stop_count": self.service_metrics.stop_count,
+            "restart_count": self.service_metrics.restart_count,
+            "error_count": self.service_metrics.error_count,
+            "uptime_seconds": self.service_metrics.uptime_seconds,
+            "health_check_count": self.service_metrics.health_check_count,
+            "health_check_failures": self.service_metrics.health_check_failures,
+            "health_check_success_rate": (
+                (self.service_metrics.health_check_count - self.service_metrics.health_check_failures)
+                / self.service_metrics.health_check_count
+                if self.service_metrics.health_check_count > 0 else 1.0
+            ),
+        }
+
+        # Merge with base component metrics
+        return {**base_metrics, **service_metrics}
+
+
+# Example implementation template
+class {ServiceName}Manager(ServiceManager[{ReturnType}]):
+    """
+    {Service description and purpose}
+
+    Atomic design level: MOLECULE
+    Dependencies: Atoms only ({atom_dependencies})
+    """
+
+    def __init__(self, config: ServiceConfig | None = None) -> None:
+        """Initialize the {service_name} manager."""
+        service_config = config or ServiceConfig(
+            service_name="{service_name}",
+            {additional_config}
+        )
+        super().__init__(service_config)
+
+        # Add service-specific initialization here
+
+    async def {primary_service_operation}(self, {parameters}) -> {ReturnType}:
+        """Primary service operation.
+
+        Args:
+            {parameter_docs}
+
+        Returns:
+            {return_description}
+
+        Raises:
+            ServiceOperationError: If operation fails.
+        """
+        async def _service_operation() -> {ReturnType}:
+            # Implement service-specific logic here
+            # Example:
+            # result = await self._process_service_request(data)
+            # return result
+            pass
+
+        return await self.execute_operation(
+            "{primary_service_operation}",
+            _service_operation
+        )

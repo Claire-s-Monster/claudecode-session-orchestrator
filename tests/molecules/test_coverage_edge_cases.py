@@ -1,5 +1,4 @@
-"""
-Edge case tests to achieve 100% coverage for placeholder_file_manager.py
+"""Edge case tests to achieve 100% coverage for placeholder_file_manager.py
 
 These tests specifically target the remaining uncovered lines:
 - Line 94: Directory processing edge case in nested structure
@@ -19,8 +18,7 @@ class TestCoverageEdgeCases:
     """Tests for specific uncovered lines to achieve 100% coverage."""
 
     def test_nested_directory_processing_line_94(self):
-        """
-        Test the specific condition on line 94 where:
+        """Test the specific condition on line 94 where:
         rel_path in self.target_directories AND root in directories_to_process
         AND root not in directories_to_process (the third condition)
 
@@ -55,8 +53,7 @@ class TestCoverageEdgeCases:
             assert os.path.exists(gitkeep_path)
 
     def test_general_exception_handling_lines_122_123(self):
-        """
-        Test the general exception handling on lines 122-123
+        """Test the general exception handling on lines 122-123
         by causing a general exception during file creation.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -81,8 +78,7 @@ class TestCoverageEdgeCases:
                 # Note: The success flag isn't explicitly set to False for general exceptions
 
     def test_complex_nested_structure_edge_case(self):
-        """
-        Test a complex nested structure that exercises the directory processing logic.
+        """Test a complex nested structure that exercises the directory processing logic.
         This creates conditions that can trigger line 94.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -95,7 +91,9 @@ class TestCoverageEdgeCases:
 
             # Create main target directory
             main_dir = os.path.join(
-                temp_dir, "src", "recovery"
+                temp_dir,
+                "src",
+                "recovery",
             )  # This is in target_directories
             os.makedirs(main_dir, exist_ok=True)
 
@@ -119,8 +117,7 @@ class TestCoverageEdgeCases:
             assert os.path.exists(os.path.join(other_target, ".gitkeep"))
 
     def test_directory_with_subdirs_but_no_files_edge_case(self):
-        """
-        Test the specific case where a directory has subdirectories but no files,
+        """Test the specific case where a directory has subdirectories but no files,
         which can trigger the logic around line 94.
         """
         with tempfile.TemporaryDirectory() as temp_dir:

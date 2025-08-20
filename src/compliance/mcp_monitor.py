@@ -6,4 +6,3 @@ class McpUsageMonitor:
 
     def __init__(self) -> None:
         """Initialize MCP monitor."""
-        pass
