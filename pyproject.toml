@@ -153,7 +153,7 @@ default = { features = ["dev", "testing", "security"], solve-group = "default" }
 dev-full = { features = ["dev", "testing", "ml", "security", "performance", "docs", "monitoring", "analytics", "learning"], solve-group = "default" }
 
 # Testing-focused environment for CI
-ci = { features = ["testing", "security"], solve-group = "default" }
+ci = { features = ["dev", "testing", "security"], solve-group = "default" }
 
 # Machine learning development
 ml-dev = { features = ["dev", "testing", "ml", "learning"], solve-group = "default" }
