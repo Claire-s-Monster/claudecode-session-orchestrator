@@ -11,11 +11,10 @@ from enum import Enum, auto
 import logging
 import os
 from pathlib import Path
+import subprocess  # nosec B404
 import time
 from typing import Any
 from uuid import uuid4
-
-import pexpect  # type: ignore
 
 
 class SessionStatus(Enum):
@@ -412,11 +411,11 @@ class SessionManager:
                     full_command.extend(["-S", self.config.tmux_socket_name])
                 full_command.extend(command)
 
-                # Execute command using pexpect in a thread pool
+                # Execute command using subprocess in a thread pool
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
                     None,
-                    self._run_pexpect_command,
+                    self._run_subprocess_command,
                     full_command,
                     timeout or self.config.operation_timeout,
                 )
@@ -436,8 +435,8 @@ class SessionManager:
                 self.logger.error(f"Tmux command failed: {command} - {e}")
                 raise SessionOperationError(f"Command failed: {e}") from e
 
-    def _run_pexpect_command(self, command: list[str], timeout: float) -> str:
-        """Run command using pexpect (blocking operation for thread pool).
+    def _run_subprocess_command(self, command: list[str], timeout: float) -> str:
+        """Run command using subprocess (blocking operation for thread pool).
 
         Args:     command: Command to execute.     timeout: Timeout for the operation.
 
@@ -446,30 +445,26 @@ class SessionManager:
         Raises:     SessionOperationError: If command execution fails.
         """
         try:
-            # Join command for pexpect spawn
-            cmd_str = " ".join(command)
-
-            # Spawn the process
-            process = pexpect.spawn(cmd_str, timeout=timeout, encoding="utf-8")
-
-            # Wait for process to complete
-            process.expect(pexpect.EOF)
-
-            # Get output
-            output = process.before or ""
+            # Execute the command with subprocess for better reliability
+            result = subprocess.run(  # nosec B603
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,  # Don't raise exception on non-zero exit
+            )
 
             # Check exit status
-            process.close()
-            if process.exitstatus != 0:
+            if result.returncode != 0:
                 raise SessionOperationError(
-                    f"Command failed with exit code {process.exitstatus}",
+                    f"Command failed with exit code {result.returncode}: {result.stderr}",
                 )
 
-            return output.strip()
+            return result.stdout.strip()
 
-        except pexpect.TIMEOUT as e:
+        except subprocess.TimeoutExpired as e:
             raise SessionOperationError(f"Command timed out: {e}") from e
-        except pexpect.ExceptionPexpect as e:
+        except subprocess.SubprocessError as e:
             raise SessionOperationError(f"Command execution failed: {e}") from e
 
     # Performance and monitoring methods

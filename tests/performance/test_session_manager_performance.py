@@ -5,11 +5,35 @@ for the SessionManager, ensuring it meets the <5% performance overhead
 requirement specified in the PRD.
 """
 
+import subprocess
 import time
 
 import pytest
 
 from src.orchestrator.session_manager import SessionConfig, SessionManager
+
+
+def _has_tmux_support() -> bool:
+    """Check if tmux and pexpect are available for testing."""
+    try:
+        # Check if pexpect can be imported
+        import pexpect  # noqa: F401
+
+        # Check if tmux command is available
+        result = subprocess.run(
+            ["which", "tmux"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return False
+
+        # Try to run tmux version command
+        result = subprocess.run(
+            ["tmux", "-V"], capture_output=True, text=True, timeout=5
+        )
+        return result.returncode == 0
+
+    except (ImportError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
 
 
 class TestSessionManagerPerformance:
@@ -54,10 +78,7 @@ class TestSessionManagerPerformance:
         assert metrics["meets_5_percent_requirement"] is True  # No overhead = good
 
     @pytest.mark.skipif(
-        not pytest.importorskip(
-            "pexpect",
-            reason="tmux not available for performance testing",
-        ),
+        not _has_tmux_support(),
         reason="tmux not available for performance testing",
     )
     @pytest.mark.asyncio
@@ -83,8 +104,8 @@ class TestSessionManagerPerformance:
             assert metrics["total_sessions_created"] == 1
             assert metrics["average_create_time"] > 0
 
-        except Exception:
-            pytest.skip("Session creation failed - likely tmux configuration issue")
+        except Exception as e:
+            pytest.fail(f"Session creation failed: {e}")
 
     @pytest.mark.asyncio
     async def test_performance_overhead_calculation(self):
@@ -192,8 +213,8 @@ class TestSessionManagerPerformance:
             assert reset_metrics["operations_per_second"] == 0.0
 
     @pytest.mark.skipif(
-        not pytest.importorskip("pexpect", reason="tmux not available"),
-        reason="Session creation failed - likely tmux configuration issue",
+        not _has_tmux_support(),
+        reason="tmux not available for performance testing",
     )
     @pytest.mark.asyncio
     async def test_concurrent_session_performance(self):
@@ -227,10 +248,10 @@ class TestSessionManagerPerformance:
                 metrics = session_manager.performance_metrics
                 assert metrics["total_sessions_created"] >= len(successful_sessions)
             else:
-                pytest.skip("All session creations failed - tmux configuration issue")
+                pytest.fail("All session creations failed - tmux configuration issue")
 
         except Exception as e:
-            pytest.skip(f"Concurrent session test failed: {e}")
+            pytest.fail(f"Concurrent session test failed: {e}")
 
     @pytest.mark.asyncio
     async def test_performance_monitoring_intervals(self):
