@@ -73,7 +73,7 @@ update_compliance_report() {
     local status="$2"
     local message="$3"
     local severity="${4:-info}"
-    
+
     # Update JSON report (simplified for bash implementation)
     # In production, use jq or Python for proper JSON manipulation
     log_info "Logging to compliance report: $section - $status"
@@ -82,9 +82,9 @@ update_compliance_report() {
 # MANDATORY: ZERO-TOLERANCE QUALITY POLICY
 check_quality_gates() {
     log_section "ZERO-TOLERANCE QUALITY POLICY VALIDATION"
-    
+
     local quality_violations=0
-    
+
     # Check if pixi.toml or pyproject.toml exists
     if [[ \! -f "${PROJECT_ROOT}/pixi.toml" && \! -f "${PROJECT_ROOT}/pyproject.toml" ]]; then
         log_critical "No pixi.toml or pyproject.toml found - PIXI-ONLY policy violated"
@@ -92,7 +92,7 @@ check_quality_gates() {
     else
         log_success "PIXI configuration file found"
     fi
-    
+
     # Check for pip violations (if Python files exist)
     if find "${PROJECT_ROOT}" -name "*.py" -type f | head -1 | grep -q .; then
         if find "${PROJECT_ROOT}" -name "requirements.txt" -o -name "setup.py" -o -name "pip" | head -1 | grep -q .; then
@@ -104,14 +104,14 @@ check_quality_gates() {
     else
         log_info "No Python files found - skipping pip dependency check"
     fi
-    
+
     # Test framework check (when tests exist)
     if [[ -d "${PROJECT_ROOT}/tests" ]]; then
         if command -v pixi >/dev/null 2>&1; then
             cd "${PROJECT_ROOT}"
             if pixi info >/dev/null 2>&1; then
                 log_info "Pixi environment detected - checking quality commands"
-                
+
                 # Check if quality commands are defined
                 if pixi task list | grep -q "test\|quality\|lint"; then
                     log_success "Quality commands found in pixi configuration"
@@ -127,20 +127,20 @@ check_quality_gates() {
     else
         log_info "No tests directory found - project in early development phase"
     fi
-    
+
     return $quality_violations
 }
 
 # MCP-FIRST STRATEGY COMPLIANCE (TARGET: 95% MCP Usage)
 check_mcp_compliance() {
     log_section "MCP-FIRST STRATEGY COMPLIANCE"
-    
+
     local mcp_violations=0
-    
+
     # Check .mcp.json configuration
     if [[ -f "${PROJECT_ROOT}/.mcp.json" ]]; then
         log_success "MCP configuration found: .mcp.json"
-        
+
         # Validate MCP server configurations
         local mcp_servers=$(grep -o '"[^"]*":' "${PROJECT_ROOT}/.mcp.json" | grep -v "mcpServers" | wc -l)
         if [[ $mcp_servers -gt 0 ]]; then
@@ -152,44 +152,44 @@ check_mcp_compliance() {
         log_critical "MCP configuration missing - MCP-first strategy violated"
         mcp_violations=$((mcp_violations + 1))
     fi
-    
+
     # Check for TaskMaster AI integration
     if grep -q "task-master-ai" "${PROJECT_ROOT}/.mcp.json" 2>/dev/null; then
         log_success "TaskMaster AI MCP integration detected"
     else
         log_warning "TaskMaster AI MCP integration not found"
     fi
-    
+
     # Validate MCP usage patterns in source code (when exists)
     if find "${PROJECT_ROOT}" -name "*.py" -type f | head -1 | grep -q .; then
         local bash_usage=$(find "${PROJECT_ROOT}" -name "*.py" -exec grep -l "subprocess\|os\.system\|shell=True" {} \; 2>/dev/null | wc -l)
         local mcp_usage=$(find "${PROJECT_ROOT}" -name "*.py" -exec grep -l "mcp__\|MCP" {} \; 2>/dev/null | wc -l)
-        
+
         if [[ $bash_usage -gt 0 ]]; then
             log_warning "Direct shell usage detected in $bash_usage files - review for MCP alternatives"
         fi
-        
+
         if [[ $mcp_usage -gt 0 ]]; then
             log_success "MCP tool usage detected in $mcp_usage files"
         fi
     fi
-    
+
     return $mcp_violations
 }
 
 # GIT WORKFLOW STANDARDS
 check_git_workflow_compliance() {
     log_section "GIT WORKFLOW STANDARDS"
-    
+
     local git_violations=0
-    
+
     # Check if git repository is initialized
     if [[ -d "${PROJECT_ROOT}/.git" ]]; then
         log_success "Git repository initialized"
-        
+
         # Check git configuration
         cd "${PROJECT_ROOT}"
-        
+
         # Verify git hooks (if any)
         if [[ -d ".git/hooks" ]]; then
             local hook_count=$(find .git/hooks -name "*.sample" -o -name "*" -type f | grep -v "\.sample$" | wc -l)
@@ -199,11 +199,11 @@ check_git_workflow_compliance() {
                 log_info "No custom git hooks found"
             fi
         fi
-        
+
         # Check for .gitignore
         if [[ -f ".gitignore" ]]; then
             log_success "Gitignore file present"
-            
+
             # Validate gitignore patterns for Python/Node.js
             if grep -q "__pycache__\|*.pyc\|node_modules" ".gitignore"; then
                 log_success "Standard ignore patterns found"
@@ -217,20 +217,20 @@ check_git_workflow_compliance() {
         log_critical "Git repository not initialized"
         git_violations=$((git_violations + 1))
     fi
-    
+
     return $git_violations
 }
 
 # TASKMASTER AI INTEGRATION
 check_taskmaster_integration() {
     log_section "TASKMASTER AI INTEGRATION"
-    
+
     local taskmaster_violations=0
-    
+
     # Check TaskMaster directory structure
     if [[ -d "${PROJECT_ROOT}/.taskmaster" ]]; then
         log_success "TaskMaster directory found"
-        
+
         # Check essential TaskMaster files
         local required_files=("config.json" "tasks/tasks.json" "docs/prd.txt")
         for file in "${required_files[@]}"; do
@@ -244,7 +244,7 @@ check_taskmaster_integration() {
         log_critical "TaskMaster not initialized - run 'task-master init'"
         taskmaster_violations=$((taskmaster_violations + 1))
     fi
-    
+
     # Check TaskMaster MCP integration
     if command -v npx >/dev/null 2>&1; then
         if npx -y --package=task-master-ai task-master-ai --version >/dev/null 2>&1; then
@@ -255,16 +255,16 @@ check_taskmaster_integration() {
     else
         log_warning "npx not available - cannot verify TaskMaster CLI"
     fi
-    
+
     return $taskmaster_violations
 }
 
 # SECURITY COMPLIANCE
 check_security_compliance() {
     log_section "SECURITY COMPLIANCE"
-    
+
     local security_violations=0
-    
+
     # Check for sensitive files
     local sensitive_patterns=("*.key" "*.pem" "*.p12" "*.pfx" "private_key*")
     for pattern in "${sensitive_patterns[@]}"; do
@@ -273,11 +273,11 @@ check_security_compliance() {
             security_violations=$((security_violations + 1))
         fi
     done
-    
+
     # Check .env file security
     if [[ -f "${PROJECT_ROOT}/.env" ]]; then
         log_info "Environment file found - checking security"
-        
+
         # Check if .env is in .gitignore
         if grep -q "\.env" "${PROJECT_ROOT}/.gitignore" 2>/dev/null; then
             log_success "Environment file properly ignored in git"
@@ -285,32 +285,32 @@ check_security_compliance() {
             log_critical "Environment file not in .gitignore - security risk"
             security_violations=$((security_violations + 1))
         fi
-        
+
         # Check for hardcoded secrets (basic patterns)
         if grep -i "password\|secret\|key" "${PROJECT_ROOT}/.env" | grep -v "your_.*_here" | head -1 | grep -q .; then
             log_warning "Potential secrets detected in .env file"
         fi
     fi
-    
+
     # Check for TODO/FIXME security items
     if find "${PROJECT_ROOT}" -name "*.py" -o -name "*.js" -o -name "*.ts" | xargs grep -i "TODO.*security\|FIXME.*security" 2>/dev/null | head -1 | grep -q .; then
         log_warning "Security-related TODO/FIXME items found"
     fi
-    
+
     return $security_violations
 }
 
 # PERFORMANCE COMPLIANCE
 check_performance_compliance() {
     log_section "PERFORMANCE COMPLIANCE"
-    
+
     # Check for performance monitoring setup
     if find "${PROJECT_ROOT}" -name "*.py" -exec grep -l "time\|perf\|profile" {} \; 2>/dev/null | head -1 | grep -q .; then
         log_success "Performance monitoring patterns detected"
     else
         log_info "No performance monitoring detected - consider adding for production"
     fi
-    
+
     # Check for async patterns (Python)
     if find "${PROJECT_ROOT}" -name "*.py" -exec grep -l "async\|await" {} \; 2>/dev/null | head -1 | grep -q .; then
         log_success "Async patterns detected for performance"
@@ -322,18 +322,18 @@ check_performance_compliance() {
 # FRAMEWORK ADHERENCE CHECK
 check_framework_adherence() {
     log_section "UNIVERSAL DEVELOPMENT FRAMEWORK ADHERENCE"
-    
+
     # Check for CLAUDE.md
     if [[ -f "${PROJECT_ROOT}/CLAUDE.md" ]]; then
         log_success "Project instructions file (CLAUDE.md) found"
     else
         log_warning "Project instructions file (CLAUDE.md) missing"
     fi
-    
+
     # Check for .claude directory
     if [[ -d "${PROJECT_ROOT}/.claude" ]]; then
         log_success "Claude Code configuration directory found"
-        
+
         # Check for custom commands
         if [[ -d "${PROJECT_ROOT}/.claude/commands" ]]; then
             local command_count=$(find "${PROJECT_ROOT}/.claude/commands" -name "*.md" | wc -l)
@@ -342,7 +342,7 @@ check_framework_adherence() {
     else
         log_warning "Claude Code configuration directory missing"
     fi
-    
+
     # Check directory structure compliance
     local expected_dirs=("src" "tests" "scripts" "docs")
     for dir in "${expected_dirs[@]}"; do
@@ -359,11 +359,11 @@ calculate_compliance_score() {
     local total_checks=50  # Approximate number of checks
     local failed_checks=$((VIOLATIONS * 2 + WARNINGS))  # Weight violations more heavily
     local score=$(( (total_checks - failed_checks) * 100 / total_checks ))
-    
+
     if [[ $score -lt 0 ]]; then
         score=0
     fi
-    
+
     echo $score
 }
 
@@ -373,10 +373,10 @@ main() {
     echo "Project Root: ${PROJECT_ROOT}"
     echo "Report: ${COMPLIANCE_REPORT}"
     echo "Started: $(date)"
-    
+
     # Initialize compliance report
     init_compliance_report
-    
+
     # Run all compliance checks
     check_quality_gates
     check_mcp_compliance
@@ -385,16 +385,16 @@ main() {
     check_security_compliance
     check_performance_compliance
     check_framework_adherence
-    
+
     # Calculate final score
     local compliance_score=$(calculate_compliance_score)
-    
+
     # Generate summary
     log_section "COMPLIANCE SUMMARY"
     echo -e "Compliance Score: ${CYAN}${compliance_score}/100${NC}"
     echo -e "Critical Violations: ${RED}${VIOLATIONS}${NC}"
     echo -e "Warnings: ${YELLOW}${WARNINGS}${NC}"
-    
+
     # Compliance status
     if [[ $VIOLATIONS -eq 0 ]]; then
         if [[ $WARNINGS -eq 0 ]]; then
