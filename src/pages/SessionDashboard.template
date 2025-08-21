@@ -1,0 +1,1187 @@
+"""
+{page_name}: Complete session dashboard page implementation.
+
+Atomic design level: PAGE
+Dependencies: All levels (Atoms + Molecules + Organisms + Templates)
+Purpose: {page_purpose}
+Thread-safe: Yes
+Async patterns: Full async/await support with complete page orchestration
+Python version: 3.12+
+"""
+
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any, TypeVar, Generic
+import logging
+import time
+from uuid import uuid4
+
+# Import all atomic design levels (allowed dependencies)
+from ..atoms.BaseComponent import BaseComponent, ComponentConfig, ComponentError
+from ..molecules.ServiceManager import ServiceManager, ServiceConfig
+from ..molecules.component_registry import ComponentRegistry
+from ..organisms.SessionOrchestrator import (
+    SessionOrchestrator,
+    OrchestrationConfig,
+    WorkflowDefinition,
+    WorkflowStep
+)
+from ..templates.WorkflowTemplate import (
+    WorkflowTemplate,
+    TemplateConfig,
+    LayoutDefinition,
+    LayoutRegionDefinition
+)
+
+
+# Type definitions
+T = TypeVar("T")
+PageId = str
+DashboardId = str
+ViewId = str
+
+
+class PageStatus(Enum):
+    """Status enumeration for page lifecycle."""
+
+    LOADING = auto()
+    READY = auto()
+    RENDERING = auto()
+    ACTIVE = auto()
+    REFRESHING = auto()
+    ERROR = auto()
+    MAINTENANCE = auto()
+
+
+class InteractionMode(Enum):
+    """Interaction modes for pages."""
+
+    READ_ONLY = auto()
+    INTERACTIVE = auto()
+    REAL_TIME = auto()
+    COLLABORATIVE = auto()
+
+
+class PageError(Exception):
+    """Base exception for page-level errors."""
+    pass
+
+
+class DashboardError(PageError):
+    """Raised when dashboard operations fail."""
+    pass
+
+
+class ViewError(PageError):
+    """Raised when view operations fail."""
+    pass
+
+
+class InteractionError(PageError):
+    """Raised when user interactions fail."""
+    pass
+
+
+@dataclass
+class ViewDefinition:
+    """Definition of a dashboard view."""
+
+    view_id: ViewId
+    name: str
+    view_type: str  # overview, detailed, analytics, etc.
+    layout_id: str
+    refresh_interval: float = 30.0
+    auto_refresh: bool = True
+    permissions: list[str] = field(default_factory=list)
+    filters: dict[str, Any] = field(default_factory=dict)
+    sort_order: dict[str, str] = field(default_factory=dict)
+    display_options: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DashboardDefinition:
+    """Definition of a complete dashboard page."""
+
+    dashboard_id: DashboardId
+    name: str
+    description: str
+    views: list[ViewDefinition]
+    default_view: ViewId
+    navigation: dict[str, Any] = field(default_factory=dict)
+    global_filters: dict[str, Any] = field(default_factory=dict)
+    real_time_updates: bool = True
+    interaction_mode: InteractionMode = InteractionMode.INTERACTIVE
+    theme: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PageConfig(ComponentConfig):
+    """Configuration for complete pages."""
+
+    # Page identification
+    page_id: str = field(default_factory=lambda: str(uuid4()))
+    page_name: str = "{page_name}"
+    page_version: str = "1.0.0"
+
+    # Page rendering settings
+    max_concurrent_views: int = 3
+    page_load_timeout: float = 30.0
+    view_render_timeout: float = 15.0
+
+    # Real-time updates
+    enable_real_time: bool = True
+    update_interval: float = 1.0
+    max_update_frequency: float = 0.1  # Minimum 100ms between updates
+
+    # Interaction settings
+    enable_interactions: bool = True
+    interaction_timeout: float = 10.0
+    max_concurrent_interactions: int = 10
+
+    # Performance and caching
+    enable_view_caching: bool = True
+    cache_ttl: float = 60.0  # 1 minute
+    enable_progressive_loading: bool = True
+    lazy_load_threshold: int = 5
+
+    # Error handling
+    enable_error_boundaries: bool = True
+    fallback_view: str | None = None
+    retry_failed_views: bool = True
+    max_retry_attempts: int = 3
+
+    def __post_init__(self) -> None:
+        """Validate page configuration."""
+        super().__post_init__()
+        if self.max_concurrent_views <= 0:
+            raise ValueError("max_concurrent_views must be positive")
+        if self.page_load_timeout <= 0:
+            raise ValueError("page_load_timeout must be positive")
+
+
+@dataclass
+class PageMetrics:
+    """Page-specific metrics."""
+
+    page_id: str
+    page_loads: int = 0
+    page_load_failures: int = 0
+    views_rendered: int = 0
+    view_failures: int = 0
+    interactions_processed: int = 0
+    interaction_failures: int = 0
+    real_time_updates_sent: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    total_page_load_time: float = 0.0
+    average_page_load_time: float = 0.0
+    total_view_render_time: float = 0.0
+    average_view_render_time: float = 0.0
+    user_sessions: int = 0
+    concurrent_users: int = 0
+
+
+class SessionDashboard(BaseComponent[dict[str, Any]], Generic[T]):
+    """Complete session dashboard page implementation.
+
+    Orchestrates:
+    - Full page lifecycle with all atomic design components
+    - Multi-view dashboard rendering and navigation
+    - Real-time data updates and user interactions
+    - Performance optimization with caching and lazy loading
+    - Error boundaries and graceful degradation
+    - User session management and collaborative features
+    - Thread-safe operations with async patterns
+    """
+
+    def __init__(
+        self,
+        config: PageConfig | None = None,
+        workflow_template: WorkflowTemplate | None = None,
+        orchestrator: SessionOrchestrator | None = None,
+        service_manager: ServiceManager | None = None,
+        component_registry: ComponentRegistry | None = None
+    ) -> None:
+        """Initialize the session dashboard.
+
+        Args:
+            config: Page configuration. Uses defaults if None.
+            workflow_template: Template engine. Creates new if None.
+            orchestrator: Session orchestrator. Creates new if None.
+            service_manager: Service manager. Creates new if None.
+            component_registry: Component registry. Creates new if None.
+        """
+        super().__init__(config)
+        self.page_config = config or PageConfig()
+
+        # Dependency injection (all atomic design levels)
+        self.workflow_template = workflow_template or WorkflowTemplate()
+        self.orchestrator = orchestrator or SessionOrchestrator()
+        self.service_manager = service_manager or ServiceManager()
+        self.component_registry = component_registry or ComponentRegistry()
+
+        # Page state
+        self._page_status = PageStatus.LOADING
+        self._dashboards: dict[DashboardId, DashboardDefinition] = {}
+        self._active_views: dict[ViewId, dict[str, Any]] = {}
+        self._user_sessions: dict[str, dict[str, Any]] = {}
+        self._view_cache: dict[str, tuple[dict[str, Any], float]] = {}
+
+        # Real-time updates
+        self._update_tasks: dict[ViewId, asyncio.Task] = {}
+        self._update_queues: dict[ViewId, asyncio.Queue] = {}
+        self._last_update_times: dict[ViewId, float] = {}
+
+        # Interaction handling
+        self._interaction_semaphore = asyncio.Semaphore(
+            self.page_config.max_concurrent_interactions
+        )
+        self._view_semaphore = asyncio.Semaphore(
+            self.page_config.max_concurrent_views
+        )
+
+        # Performance tracking
+        self.page_metrics = PageMetrics(page_id=self.page_config.page_id)
+        self._metrics_update_task: asyncio.Task | None = None
+
+        self.logger.info(f"SessionDashboard initialized: {self.page_config.page_name}")
+
+    @property
+    def page_status(self) -> PageStatus:
+        """Get current page status."""
+        return self._page_status
+
+    @property
+    def is_active(self) -> bool:
+        """Check if page is active and ready for interactions."""
+        return self._page_status == PageStatus.ACTIVE
+
+    @property
+    def active_view_count(self) -> int:
+        """Get number of active views."""
+        return len(self._active_views)
+
+    async def _initialize_component(self) -> None:
+        """Initialize page components."""
+        # Initialize all dependent components
+        await self.workflow_template.initialize()
+        await self.orchestrator.initialize()
+        await self.service_manager.initialize()
+
+        # Register all components
+        await self.component_registry.register(
+            self.workflow_template,
+            name="workflow_template",
+            type_hint=WorkflowTemplate
+        )
+        await self.component_registry.register(
+            self.orchestrator,
+            name="orchestrator",
+            type_hint=SessionOrchestrator
+        )
+        await self.component_registry.register(
+            self.service_manager,
+            name="service_manager",
+            type_hint=ServiceManager
+        )
+
+        # Start metrics collection
+        if self.page_config.enable_real_time:
+            self._metrics_update_task = asyncio.create_task(
+                self._metrics_update_loop()
+            )
+
+        self._page_status = PageStatus.READY
+        self.logger.info("Session dashboard component initialized")
+
+    async def _shutdown_component(self) -> None:
+        """Cleanup page resources."""
+        # Stop metrics collection
+        if self._metrics_update_task and not self._metrics_update_task.done():
+            self._metrics_update_task.cancel()
+            try:
+                await self._metrics_update_task
+            except asyncio.CancelledError:
+                pass
+
+        # Stop all real-time updates
+        await self.stop_all_real_time_updates()
+
+        # Clear user sessions
+        self._user_sessions.clear()
+
+        # Clear caches
+        self._view_cache.clear()
+
+        # Shutdown dependent components
+        await self.workflow_template.shutdown()
+        await self.orchestrator.shutdown()
+        await self.service_manager.shutdown()
+        await self.component_registry.clear()
+
+        # Clear internal state
+        self._dashboards.clear()
+        self._active_views.clear()
+
+        self.logger.info("Session dashboard component shutdown complete")
+
+    async def register_dashboard(self, dashboard: DashboardDefinition) -> bool:
+        """Register a dashboard definition.
+
+        Args:
+            dashboard: Dashboard definition to register.
+
+        Returns:
+            True if dashboard registered successfully.
+
+        Raises:
+            DashboardError: If dashboard registration fails.
+        """
+        async def _register_operation() -> bool:
+            if dashboard.dashboard_id in self._dashboards:
+                raise DashboardError(
+                    f"Dashboard {dashboard.dashboard_id} already registered"
+                )
+
+            # Validate dashboard definition
+            await self._validate_dashboard(dashboard)
+
+            # Register layouts for all views
+            for view in dashboard.views:
+                layout_definition = await self._create_view_layout(view)
+                await self.workflow_template.register_layout(layout_definition)
+
+            # Register dashboard
+            self._dashboards[dashboard.dashboard_id] = dashboard
+
+            # Activate page if this is the first dashboard
+            if self._page_status == PageStatus.READY:
+                self._page_status = PageStatus.ACTIVE
+
+            self.logger.info(
+                f"Registered dashboard: {dashboard.name} ({dashboard.dashboard_id})"
+            )
+            return True
+
+        return await self.execute_operation(
+            f"register_dashboard_{dashboard.dashboard_id}",
+            _register_operation
+        )
+
+    async def load_dashboard(
+        self,
+        dashboard_id: DashboardId,
+        user_session_id: str | None = None,
+        initial_context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Load and render a complete dashboard.
+
+        Args:
+            dashboard_id: ID of the dashboard to load.
+            user_session_id: Optional user session identifier.
+            initial_context: Optional initial context data.
+
+        Returns:
+            Complete dashboard data with all views.
+
+        Raises:
+            DashboardError: If dashboard loading fails.
+            PageError: If page not ready.
+        """
+        async def _load_operation() -> dict[str, Any]:
+            if dashboard_id not in self._dashboards:
+                raise DashboardError(f"Dashboard {dashboard_id} not found")
+
+            dashboard = self._dashboards[dashboard_id]
+            session_id = user_session_id or str(uuid4())
+            context = initial_context or {}
+
+            self.logger.info(f"Loading dashboard: {dashboard.name}")
+            self._page_status = PageStatus.RENDERING
+
+            page_load_start_time = time.time()
+
+            try:
+                # Initialize user session
+                await self._initialize_user_session(session_id, dashboard_id, context)
+
+                # Load default view first
+                default_view_result = await self._load_view(
+                    dashboard.default_view,
+                    context,
+                    session_id
+                )
+
+                # Load other views if not using lazy loading
+                other_views_results = {}
+                if not self.page_config.enable_progressive_loading:
+                    for view in dashboard.views:
+                        if view.view_id != dashboard.default_view:
+                            other_views_results[view.view_id] = await self._load_view(
+                                view.view_id,
+                                context,
+                                session_id
+                            )
+                else:
+                    # Mark other views as lazy-loadable
+                    for view in dashboard.views:
+                        if view.view_id != dashboard.default_view:
+                            other_views_results[view.view_id] = {
+                                "lazy_load": True,
+                                "view_id": view.view_id,
+                                "load_endpoint": f"/load_view/{view.view_id}"
+                            }
+
+                # Start real-time updates if enabled
+                if dashboard.real_time_updates and self.page_config.enable_real_time:
+                    await self._start_dashboard_real_time_updates(dashboard_id, session_id)
+
+                # Update metrics
+                page_load_time = time.time() - page_load_start_time
+                self.page_metrics.page_loads += 1
+                self.page_metrics.total_page_load_time += page_load_time
+                self._update_average_page_load_time()
+
+                # Update user session count
+                self.page_metrics.user_sessions = len(self._user_sessions)
+
+                self._page_status = PageStatus.ACTIVE
+
+                dashboard_data = {
+                    "dashboard_id": dashboard_id,
+                    "dashboard_name": dashboard.name,
+                    "session_id": session_id,
+                    "load_time": page_load_time,
+                    "default_view": dashboard.default_view,
+                    "default_view_data": default_view_result,
+                    "other_views": other_views_results,
+                    "navigation": dashboard.navigation,
+                    "global_filters": dashboard.global_filters,
+                    "theme": dashboard.theme,
+                    "real_time_enabled": dashboard.real_time_updates,
+                    "interaction_mode": dashboard.interaction_mode.name,
+                    "context": context,
+                }
+
+                self.logger.info(
+                    f"Dashboard {dashboard.name} loaded in {page_load_time:.2f}s"
+                )
+
+                return dashboard_data
+
+            except Exception as e:
+                self.page_metrics.page_load_failures += 1
+                self._page_status = PageStatus.ERROR
+
+                # Try fallback view if configured
+                if self.page_config.fallback_view:
+                    fallback_result = await self._load_fallback_view(
+                        dashboard_id, context, session_id, str(e)
+                    )
+                    if fallback_result:
+                        return fallback_result
+
+                self.logger.error(f"Dashboard {dashboard.name} load failed: {e}")
+                raise DashboardError(f"Dashboard loading failed: {e}") from e
+
+        return await self.execute_operation(
+            f"load_dashboard_{dashboard_id}",
+            _load_operation
+        )
+
+    async def handle_user_interaction(
+        self,
+        interaction_data: dict[str, Any],
+        session_id: str
+    ) -> dict[str, Any]:
+        """Handle user interaction with the dashboard.
+
+        Args:
+            interaction_data: Interaction data from user.
+            session_id: User session identifier.
+
+        Returns:
+            Interaction result data.
+
+        Raises:
+            InteractionError: If interaction handling fails.
+        """
+        async def _interaction_operation() -> dict[str, Any]:
+            if session_id not in self._user_sessions:
+                raise InteractionError(f"User session {session_id} not found")
+
+            interaction_type = interaction_data.get("type", "unknown")
+            self.logger.debug(f"Processing interaction: {interaction_type}")
+
+            try:
+                # Route interaction based on type
+                if interaction_type == "view_change":
+                    result = await self._handle_view_change(interaction_data, session_id)
+                elif interaction_type == "filter_change":
+                    result = await self._handle_filter_change(interaction_data, session_id)
+                elif interaction_type == "refresh_view":
+                    result = await self._handle_view_refresh(interaction_data, session_id)
+                elif interaction_type == "export_data":
+                    result = await self._handle_data_export(interaction_data, session_id)
+                else:
+                    # Generic interaction handling
+                    result = await self._handle_generic_interaction(interaction_data, session_id)
+
+                # Update metrics
+                self.page_metrics.interactions_processed += 1
+
+                self.logger.debug(f"Interaction {interaction_type} processed successfully")
+                return result
+
+            except Exception as e:
+                self.page_metrics.interaction_failures += 1
+                self.logger.error(f"Interaction {interaction_type} failed: {e}")
+                raise InteractionError(f"Interaction handling failed: {e}") from e
+
+        return await self.execute_operation(
+            f"handle_interaction_{interaction_type}",
+            _interaction_operation
+        )
+
+    async def get_real_time_updates(
+        self,
+        view_id: ViewId,
+        session_id: str,
+        since_timestamp: float | None = None
+    ) -> dict[str, Any]:
+        """Get real-time updates for a view.
+
+        Args:
+            view_id: ID of the view to get updates for.
+            session_id: User session identifier.
+            since_timestamp: Optional timestamp to get updates since.
+
+        Returns:
+            Real-time update data.
+        """
+        if session_id not in self._user_sessions:
+            return {"error": f"Session {session_id} not found"}
+
+        if view_id not in self._update_queues:
+            return {"updates": [], "timestamp": time.time()}
+
+        updates = []
+        update_queue = self._update_queues[view_id]
+
+        # Get all available updates
+        try:
+            while True:
+                update = update_queue.get_nowait()
+                if since_timestamp is None or update["timestamp"] > since_timestamp:
+                    updates.append(update)
+        except asyncio.QueueEmpty:
+            pass
+
+        return {
+            "view_id": view_id,
+            "updates": updates,
+            "timestamp": time.time(),
+            "update_count": len(updates)
+        }
+
+    async def get_dashboard_metrics(
+        self,
+        dashboard_id: DashboardId | None = None
+    ) -> dict[str, Any]:
+        """Get dashboard performance metrics.
+
+        Args:
+            dashboard_id: Optional dashboard ID to filter metrics.
+
+        Returns:
+            Dashboard metrics data.
+        """
+        base_metrics = self.get_metrics()
+
+        dashboard_metrics = {
+            "page_id": self.page_metrics.page_id,
+            "page_name": self.page_config.page_name,
+            "page_status": self._page_status.name,
+            "dashboards_registered": len(self._dashboards),
+            "active_views": len(self._active_views),
+            "user_sessions": self.page_metrics.user_sessions,
+            "concurrent_users": len(self._user_sessions),
+            "page_loads": self.page_metrics.page_loads,
+            "page_load_failures": self.page_metrics.page_load_failures,
+            "page_load_success_rate": (
+                (self.page_metrics.page_loads - self.page_metrics.page_load_failures) /
+                max(self.page_metrics.page_loads, 1)
+            ),
+            "average_page_load_time": self.page_metrics.average_page_load_time,
+            "views_rendered": self.page_metrics.views_rendered,
+            "view_failures": self.page_metrics.view_failures,
+            "view_success_rate": (
+                (self.page_metrics.views_rendered - self.page_metrics.view_failures) /
+                max(self.page_metrics.views_rendered, 1)
+            ),
+            "average_view_render_time": self.page_metrics.average_view_render_time,
+            "interactions_processed": self.page_metrics.interactions_processed,
+            "interaction_failures": self.page_metrics.interaction_failures,
+            "interaction_success_rate": (
+                (self.page_metrics.interactions_processed - self.page_metrics.interaction_failures) /
+                max(self.page_metrics.interactions_processed, 1)
+            ),
+            "real_time_updates_sent": self.page_metrics.real_time_updates_sent,
+            "cache_hits": self.page_metrics.cache_hits,
+            "cache_misses": self.page_metrics.cache_misses,
+            "cache_hit_rate": (
+                self.page_metrics.cache_hits /
+                max(self.page_metrics.cache_hits + self.page_metrics.cache_misses, 1)
+            ),
+        }
+
+        # Add dashboard-specific metrics if requested
+        if dashboard_id and dashboard_id in self._dashboards:
+            dashboard_specific = await self._get_dashboard_specific_metrics(dashboard_id)
+            dashboard_metrics.update(dashboard_specific)
+
+        # Merge with base component metrics
+        return {**base_metrics, **dashboard_metrics}
+
+    # Helper methods
+
+    async def _validate_dashboard(self, dashboard: DashboardDefinition) -> None:
+        """Validate dashboard definition."""
+        if not dashboard.views:
+            raise DashboardError("Dashboard must have at least one view")
+
+        # Check default view exists
+        view_ids = [view.view_id for view in dashboard.views]
+        if dashboard.default_view not in view_ids:
+            raise DashboardError(f"Default view {dashboard.default_view} not found in views")
+
+        # Check for duplicate view IDs
+        if len(view_ids) != len(set(view_ids)):
+            raise DashboardError("Dashboard contains duplicate view IDs")
+
+    async def _create_view_layout(self, view: ViewDefinition) -> LayoutDefinition:
+        """Create layout definition for a view."""
+        # This would create appropriate layout regions based on view type
+        regions = []
+
+        if view.view_type == "overview":
+            regions = [
+                LayoutRegionDefinition(
+                    region_id="header",
+                    name="Dashboard Header",
+                    region_type="header",
+                    component_type=BaseComponent,  # Would be specific header component
+                    render_order=1
+                ),
+                LayoutRegionDefinition(
+                    region_id="content",
+                    name="Main Content",
+                    region_type="content",
+                    component_type=BaseComponent,  # Would be specific content component
+                    render_order=2
+                ),
+                LayoutRegionDefinition(
+                    region_id="sidebar",
+                    name="Navigation Sidebar",
+                    region_type="sidebar",
+                    component_type=BaseComponent,  # Would be specific sidebar component
+                    render_order=3,
+                    required=False
+                )
+            ]
+        elif view.view_type == "detailed":
+            regions = [
+                LayoutRegionDefinition(
+                    region_id="breadcrumb",
+                    name="Breadcrumb Navigation",
+                    region_type="navigation",
+                    component_type=BaseComponent,
+                    render_order=1
+                ),
+                LayoutRegionDefinition(
+                    region_id="detail_content",
+                    name="Detailed View Content",
+                    region_type="content",
+                    component_type=BaseComponent,
+                    render_order=2
+                )
+            ]
+        else:
+            # Default layout
+            regions = [
+                LayoutRegionDefinition(
+                    region_id="main",
+                    name="Main Content",
+                    region_type="content",
+                    component_type=BaseComponent,
+                    render_order=1
+                )
+            ]
+
+        return LayoutDefinition(
+            layout_id=view.layout_id,
+            name=f"Layout for {view.name}",
+            description=f"Layout definition for view {view.view_id}",
+            layout_type=view.view_type,
+            regions=regions,
+            render_strategy="parallel",
+            cache_strategy="memory" if self.page_config.enable_view_caching else "none"
+        )
+
+    async def _initialize_user_session(
+        self,
+        session_id: str,
+        dashboard_id: DashboardId,
+        context: dict[str, Any]
+    ) -> None:
+        """Initialize user session data."""
+        self._user_sessions[session_id] = {
+            "session_id": session_id,
+            "dashboard_id": dashboard_id,
+            "created_at": time.time(),
+            "last_activity": time.time(),
+            "context": context,
+            "active_views": [],
+            "permissions": [],
+            "preferences": {}
+        }
+
+        # Update concurrent users count
+        self.page_metrics.concurrent_users = len(self._user_sessions)
+
+    async def _load_view(
+        self,
+        view_id: ViewId,
+        context: dict[str, Any],
+        session_id: str
+    ) -> dict[str, Any]:
+        """Load a single view."""
+        async with self._view_semaphore:
+            # Find view definition
+            view_definition = None
+            for dashboard in self._dashboards.values():
+                for view in dashboard.views:
+                    if view.view_id == view_id:
+                        view_definition = view
+                        break
+                if view_definition:
+                    break
+
+            if not view_definition:
+                raise ViewError(f"View {view_id} not found")
+
+            # Check cache first
+            cache_key = f"{view_id}_{hash(str(context))}"
+            if self.page_config.enable_view_caching and cache_key in self._view_cache:
+                cached_result, cached_time = self._view_cache[cache_key]
+                if time.time() - cached_time < self.page_config.cache_ttl:
+                    self.page_metrics.cache_hits += 1
+                    return cached_result
+
+            self.page_metrics.cache_misses += 1
+
+            view_render_start = time.time()
+
+            try:
+                # Render view using workflow template
+                view_context = {**context, **view_definition.filters}
+                render_result = await self.workflow_template.render_layout(
+                    view_definition.layout_id,
+                    view_context
+                )
+
+                # Process view-specific data
+                view_data = {
+                    "view_id": view_id,
+                    "view_name": view_definition.name,
+                    "view_type": view_definition.view_type,
+                    "render_result": render_result,
+                    "refresh_interval": view_definition.refresh_interval,
+                    "auto_refresh": view_definition.auto_refresh,
+                    "permissions": view_definition.permissions,
+                    "display_options": view_definition.display_options,
+                    "session_id": session_id,
+                }
+
+                # Cache result
+                if self.page_config.enable_view_caching:
+                    self._view_cache[cache_key] = (view_data, time.time())
+
+                # Track view as active
+                self._active_views[view_id] = view_data
+
+                # Update user session
+                if session_id in self._user_sessions:
+                    if view_id not in self._user_sessions[session_id]["active_views"]:
+                        self._user_sessions[session_id]["active_views"].append(view_id)
+
+                # Update metrics
+                view_render_time = time.time() - view_render_start
+                self.page_metrics.views_rendered += 1
+                self.page_metrics.total_view_render_time += view_render_time
+                self._update_average_view_render_time()
+
+                return view_data
+
+            except Exception as e:
+                self.page_metrics.view_failures += 1
+                self.logger.error(f"View {view_id} load failed: {e}")
+
+                # Try retry if configured
+                if (self.page_config.retry_failed_views and
+                    self.page_config.max_retry_attempts > 0):
+                    # Simple retry logic (could be more sophisticated)
+                    await asyncio.sleep(1.0)
+                    return await self._load_view(view_id, context, session_id)
+
+                raise ViewError(f"View loading failed: {e}") from e
+
+    async def _start_dashboard_real_time_updates(
+        self,
+        dashboard_id: DashboardId,
+        session_id: str
+    ) -> None:
+        """Start real-time updates for dashboard views."""
+        dashboard = self._dashboards[dashboard_id]
+
+        for view in dashboard.views:
+            if view.auto_refresh and view.view_id not in self._update_tasks:
+                # Create update queue for this view
+                self._update_queues[view.view_id] = asyncio.Queue()
+
+                # Start update task
+                self._update_tasks[view.view_id] = asyncio.create_task(
+                    self._real_time_update_loop(view.view_id, view.refresh_interval)
+                )
+
+    async def _real_time_update_loop(self, view_id: ViewId, interval: float) -> None:
+        """Real-time update loop for a view."""
+        while view_id in self._update_tasks:
+            try:
+                # Check if we should send an update
+                current_time = time.time()
+                last_update = self._last_update_times.get(view_id, 0)
+
+                if current_time - last_update >= max(interval, self.page_config.max_update_frequency):
+                    # Generate update data
+                    update_data = await self._generate_view_update(view_id)
+
+                    # Queue update
+                    if view_id in self._update_queues:
+                        try:
+                            self._update_queues[view_id].put_nowait({
+                                "view_id": view_id,
+                                "timestamp": current_time,
+                                "data": update_data,
+                                "update_type": "refresh"
+                            })
+
+                            self.page_metrics.real_time_updates_sent += 1
+                            self._last_update_times[view_id] = current_time
+                        except asyncio.QueueFull:
+                            # Queue full, skip this update
+                            pass
+
+                # Wait for next update cycle
+                await asyncio.sleep(self.page_config.update_interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Real-time update error for view {view_id}: {e}")
+                await asyncio.sleep(interval)
+
+    async def _generate_view_update(self, view_id: ViewId) -> dict[str, Any]:
+        """Generate update data for a view."""
+        # This would generate actual update data based on view type
+        # For now, return placeholder data
+        return {
+            "view_id": view_id,
+            "timestamp": time.time(),
+            "changes": ["data_refresh"],
+            "data": {"updated": True}
+        }
+
+    async def stop_all_real_time_updates(self) -> None:
+        """Stop all real-time update tasks."""
+        for view_id, task in self._update_tasks.items():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        self._update_tasks.clear()
+        self._update_queues.clear()
+        self._last_update_times.clear()
+
+    # Interaction handlers
+
+    async def _handle_view_change(
+        self,
+        interaction_data: dict[str, Any],
+        session_id: str
+    ) -> dict[str, Any]:
+        """Handle view change interaction."""
+        new_view_id = interaction_data.get("view_id")
+        context = interaction_data.get("context", {})
+
+        if not new_view_id:
+            raise InteractionError("view_id required for view change")
+
+        # Load new view
+        view_data = await self._load_view(new_view_id, context, session_id)
+
+        return {
+            "interaction_type": "view_change",
+            "view_id": new_view_id,
+            "view_data": view_data,
+            "session_id": session_id
+        }
+
+    async def _handle_filter_change(
+        self,
+        interaction_data: dict[str, Any],
+        session_id: str
+    ) -> dict[str, Any]:
+        """Handle filter change interaction."""
+        view_id = interaction_data.get("view_id")
+        filters = interaction_data.get("filters", {})
+
+        if not view_id:
+            raise InteractionError("view_id required for filter change")
+
+        # Update view with new filters
+        context = {"filters": filters}
+        view_data = await self._load_view(view_id, context, session_id)
+
+        return {
+            "interaction_type": "filter_change",
+            "view_id": view_id,
+            "filters": filters,
+            "view_data": view_data,
+            "session_id": session_id
+        }
+
+    async def _handle_view_refresh(
+        self,
+        interaction_data: dict[str, Any],
+        session_id: str
+    ) -> dict[str, Any]:
+        """Handle view refresh interaction."""
+        view_id = interaction_data.get("view_id")
+
+        if not view_id:
+            raise InteractionError("view_id required for view refresh")
+
+        # Clear cache for this view and reload
+        cache_keys_to_remove = [
+            key for key in self._view_cache.keys()
+            if key.startswith(f"{view_id}_")
+        ]
+        for key in cache_keys_to_remove:
+            del self._view_cache[key]
+
+        # Reload view
+        context = interaction_data.get("context", {})
+        view_data = await self._load_view(view_id, context, session_id)
+
+        return {
+            "interaction_type": "view_refresh",
+            "view_id": view_id,
+            "view_data": view_data,
+            "session_id": session_id
+        }
+
+    async def _handle_data_export(
+        self,
+        interaction_data: dict[str, Any],
+        session_id: str
+    ) -> dict[str, Any]:
+        """Handle data export interaction."""
+        view_id = interaction_data.get("view_id")
+        export_format = interaction_data.get("format", "json")
+
+        if not view_id or view_id not in self._active_views:
+            raise InteractionError("Valid view_id required for data export")
+
+        view_data = self._active_views[view_id]
+
+        # Generate export data (placeholder implementation)
+        export_data = {
+            "view_id": view_id,
+            "export_format": export_format,
+            "data": view_data.get("render_result", {}),
+            "timestamp": time.time(),
+            "session_id": session_id
+        }
+
+        return {
+            "interaction_type": "data_export",
+            "export_data": export_data,
+            "download_url": f"/export/{view_id}_{int(time.time())}.{export_format}",
+            "session_id": session_id
+        }
+
+    async def _handle_generic_interaction(
+        self,
+        interaction_data: dict[str, Any],
+        session_id: str
+    ) -> dict[str, Any]:
+        """Handle generic interaction."""
+        return {
+            "interaction_type": interaction_data.get("type", "generic"),
+            "processed": True,
+            "data": interaction_data,
+            "session_id": session_id,
+            "timestamp": time.time()
+        }
+
+    async def _load_fallback_view(
+        self,
+        dashboard_id: DashboardId,
+        context: dict[str, Any],
+        session_id: str,
+        error: str
+    ) -> dict[str, Any] | None:
+        """Load fallback view on error."""
+        if not self.page_config.fallback_view:
+            return None
+
+        try:
+            fallback_data = await self._load_view(
+                self.page_config.fallback_view,
+                context,
+                session_id
+            )
+
+            return {
+                "dashboard_id": dashboard_id,
+                "fallback_view": True,
+                "original_error": error,
+                "view_data": fallback_data,
+                "session_id": session_id
+            }
+        except Exception as e:
+            self.logger.error(f"Fallback view load failed: {e}")
+            return None
+
+    async def _get_dashboard_specific_metrics(
+        self,
+        dashboard_id: DashboardId
+    ) -> dict[str, Any]:
+        """Get metrics specific to a dashboard."""
+        dashboard = self._dashboards[dashboard_id]
+
+        # Count active views for this dashboard
+        active_dashboard_views = 0
+        for view in dashboard.views:
+            if view.view_id in self._active_views:
+                active_dashboard_views += 1
+
+        # Count user sessions for this dashboard
+        dashboard_sessions = 0
+        for session_data in self._user_sessions.values():
+            if session_data.get("dashboard_id") == dashboard_id:
+                dashboard_sessions += 1
+
+        return {
+            f"dashboard_{dashboard_id}_views_registered": len(dashboard.views),
+            f"dashboard_{dashboard_id}_views_active": active_dashboard_views,
+            f"dashboard_{dashboard_id}_user_sessions": dashboard_sessions,
+            f"dashboard_{dashboard_id}_real_time_enabled": dashboard.real_time_updates,
+            f"dashboard_{dashboard_id}_interaction_mode": dashboard.interaction_mode.name,
+        }
+
+    def _update_average_page_load_time(self) -> None:
+        """Update average page load time."""
+        if self.page_metrics.page_loads > 0:
+            self.page_metrics.average_page_load_time = (
+                self.page_metrics.total_page_load_time / self.page_metrics.page_loads
+            )
+
+    def _update_average_view_render_time(self) -> None:
+        """Update average view render time."""
+        if self.page_metrics.views_rendered > 0:
+            self.page_metrics.average_view_render_time = (
+                self.page_metrics.total_view_render_time / self.page_metrics.views_rendered
+            )
+
+    async def _metrics_update_loop(self) -> None:
+        """Update metrics periodically."""
+        while not self._shutdown_event.is_set():
+            try:
+                # Update concurrent users
+                self.page_metrics.concurrent_users = len(self._user_sessions)
+
+                # Cleanup old sessions (older than 24 hours)
+                current_time = time.time()
+                expired_sessions = [
+                    session_id for session_id, session_data in self._user_sessions.items()
+                    if current_time - session_data.get("last_activity", 0) > 86400
+                ]
+
+                for session_id in expired_sessions:
+                    del self._user_sessions[session_id]
+
+                # Wait for next update
+                await asyncio.sleep(self.page_config.update_interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Metrics update error: {e}")
+
+
+# Example implementation template
+class {PageName}(SessionDashboard[{ReturnType}]):
+    """
+    {Page description and purpose}
+
+    Atomic design level: PAGE
+    Dependencies: All levels ({dependencies})
+    """
+
+    def __init__(
+        self,
+        config: PageConfig | None = None,
+        **component_dependencies: Any
+    ) -> None:
+        """Initialize the {page_name}."""
+        page_config = config or PageConfig(
+            page_name="{page_name}",
+            {additional_config}
+        )
+        super().__init__(page_config, **component_dependencies)
+
+        # Add page-specific initialization here
+
+    async def {primary_page_operation}(self, {parameters}) -> {ReturnType}:
+        """Primary page operation.
+
+        Args:
+            {parameter_docs}
+
+        Returns:
+            {return_description}
+
+        Raises:
+            PageError: If page operation fails.
+        """
+        async def _page_operation() -> {ReturnType}:
+            # Implement page-specific logic here
+            # Example:
+            # dashboard_def = self._build_dashboard_definition(spec)
+            # await self.register_dashboard(dashboard_def)
+            # result = await self.load_dashboard(dashboard_def.dashboard_id, session_id, context)
+            # return result
+            pass
+
+        return await self.execute_operation(
+            "{primary_page_operation}",
+            _page_operation
+        )

@@ -1,8 +1,7 @@
-"""
-ClaudeCode Session Orchestrator - Framework Compliance Module
+"""ClaudeCode Session Orchestrator - Framework Compliance Module.
 
-This module provides comprehensive framework compliance verification and monitoring
-for the Universal Development Framework standards.
+This module provides comprehensive framework compliance verification and monitoring for
+the Universal Development Framework standards.
 """
 
 from .compliance_verifier import ComplianceVerifier
@@ -11,11 +10,10 @@ from .quality_enforcer import QualityEnforcer
 from .security_validator import SecurityValidator
 
 __all__ = [
-    'ComplianceVerifier',
-    'McpUsageMonitor', 
-    'QualityEnforcer',
-    'SecurityValidator'
+    "ComplianceVerifier",
+    "McpUsageMonitor",
+    "QualityEnforcer",
+    "SecurityValidator",
 ]
 
-__version__ = '1.0.0'
-EOF < /dev/null
+__version__ = "1.0.0"

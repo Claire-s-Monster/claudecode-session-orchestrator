@@ -1,0 +1,859 @@
+"""
+{orchestrator_name}: Complex session orchestration organism for managing multiple components.
+
+Atomic design level: ORGANISM
+Dependencies: Atoms + Molecules only (BaseComponent, ServiceManager, ComponentRegistry, etc.)
+Purpose: {orchestrator_purpose}
+Thread-safe: Yes
+Async patterns: Full async/await support with complex workflow orchestration
+Python version: 3.12+
+"""
+
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any, TypeVar, Generic
+import logging
+import time
+from uuid import uuid4
+
+# Import atoms and molecules (allowed dependencies)
+from ..atoms.BaseComponent import BaseComponent, ComponentConfig, ComponentError
+from ..molecules.ServiceManager import ServiceManager, ServiceConfig, ServiceError
+from ..molecules.component_registry import ComponentRegistry
+
+
+# Type definitions
+T = TypeVar("T")
+OrchestrationId = str
+WorkflowId = str
+
+
+class OrchestrationStatus(Enum):
+    """Status enumeration for orchestration lifecycle."""
+
+    IDLE = auto()
+    INITIALIZING = auto()
+    ORCHESTRATING = auto()
+    COORDINATING = auto()
+    COMPLETING = auto()
+    ERROR = auto()
+    SHUTDOWN = auto()
+
+
+class WorkflowStatus(Enum):
+    """Status enumeration for individual workflows."""
+
+    PENDING = auto()
+    RUNNING = auto()
+    COMPLETED = auto()
+    FAILED = auto()
+    CANCELLED = auto()
+
+
+class OrchestrationError(Exception):
+    """Base exception for orchestration-level errors."""
+    pass
+
+
+class WorkflowError(OrchestrationError):
+    """Raised when workflow execution fails."""
+    pass
+
+
+class CoordinationError(OrchestrationError):
+    """Raised when component coordination fails."""
+    pass
+
+
+class DependencyError(OrchestrationError):
+    """Raised when orchestration dependencies are not met."""
+    pass
+
+
+@dataclass
+class WorkflowStep:
+    """Definition of a workflow step."""
+
+    step_id: str
+    name: str
+    operation: Callable[..., Any]
+    dependencies: list[str] = field(default_factory=list)
+    timeout: float = 30.0
+    retry_attempts: int = 3
+    retry_delay: float = 1.0
+    required_services: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkflowDefinition:
+    """Definition of a complete workflow."""
+
+    workflow_id: WorkflowId
+    name: str
+    description: str
+    steps: list[WorkflowStep]
+    max_parallel_steps: int = 5
+    timeout: float = 300.0  # 5 minutes
+    on_success: Callable[..., Any] | None = None
+    on_failure: Callable[..., Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OrchestrationConfig(ComponentConfig):
+    """Configuration for session orchestration organisms."""
+
+    # Orchestration identification
+    orchestration_id: str = field(default_factory=lambda: str(uuid4()))
+    orchestrator_name: str = "{orchestrator_name}"
+    orchestrator_version: str = "1.0.0"
+
+    # Orchestration settings
+    max_concurrent_workflows: int = 10
+    max_concurrent_steps: int = 20
+    workflow_timeout: float = 600.0  # 10 minutes
+    coordination_timeout: float = 30.0
+
+    # Component management
+    component_startup_timeout: float = 60.0
+    component_shutdown_timeout: float = 30.0
+    component_health_check_interval: float = 60.0
+
+    # Error handling and recovery
+    enable_auto_recovery: bool = True
+    max_recovery_attempts: int = 3
+    recovery_delay: float = 5.0
+
+    # Performance monitoring
+    enable_detailed_metrics: bool = True
+    metrics_collection_interval: float = 10.0
+
+    def __post_init__(self) -> None:
+        """Validate orchestration configuration."""
+        super().__post_init__()
+        if self.max_concurrent_workflows <= 0:
+            raise ValueError("max_concurrent_workflows must be positive")
+        if self.workflow_timeout <= 0:
+            raise ValueError("workflow_timeout must be positive")
+
+
+@dataclass
+class OrchestrationMetrics:
+    """Orchestration-specific metrics."""
+
+    orchestration_id: str
+    workflows_started: int = 0
+    workflows_completed: int = 0
+    workflows_failed: int = 0
+    steps_executed: int = 0
+    steps_failed: int = 0
+    components_managed: int = 0
+    total_orchestration_time: float = 0.0
+    average_workflow_time: float = 0.0
+    coordination_events: int = 0
+    recovery_attempts: int = 0
+
+
+class SessionOrchestrator(BaseComponent[bool], Generic[T]):
+    """Complex session orchestration organism for managing multi-component workflows.
+
+    Orchestrates:
+    - Complex multi-step workflows with dependencies
+    - Component lifecycle and coordination
+    - Service discovery and management
+    - Error recovery and retry logic
+    - Performance monitoring (<5% overhead)
+    - Thread-safe operations with async patterns
+    """
+
+    def __init__(
+        self,
+        config: OrchestrationConfig | None = None,
+        service_manager: ServiceManager | None = None,
+        component_registry: ComponentRegistry | None = None
+    ) -> None:
+        """Initialize the session orchestrator.
+
+        Args:
+            config: Orchestration configuration. Uses defaults if None.
+            service_manager: Service manager instance. Creates new if None.
+            component_registry: Component registry. Creates new if None.
+        """
+        super().__init__(config)
+        self.orchestration_config = config or OrchestrationConfig()
+
+        # Dependency injection (molecules)
+        self.service_manager = service_manager or ServiceManager()
+        self.component_registry = component_registry or ComponentRegistry()
+
+        # Orchestration state
+        self._orchestration_status = OrchestrationStatus.IDLE
+        self._workflows: dict[WorkflowId, WorkflowDefinition] = {}
+        self._workflow_states: dict[WorkflowId, WorkflowStatus] = {}
+        self._workflow_tasks: dict[WorkflowId, asyncio.Task] = {}
+        self._step_results: dict[str, dict[str, Any]] = {}
+
+        # Coordination mechanisms
+        self._coordination_events: dict[str, asyncio.Event] = {}
+        self._workflow_semaphore = asyncio.Semaphore(
+            self.orchestration_config.max_concurrent_workflows
+        )
+        self._step_semaphore = asyncio.Semaphore(
+            self.orchestration_config.max_concurrent_steps
+        )
+
+        # Monitoring
+        self.orchestration_metrics = OrchestrationMetrics(
+            orchestration_id=self.orchestration_config.orchestration_id
+        )
+        self._metrics_task: asyncio.Task | None = None
+
+        self.logger.info(
+            f"SessionOrchestrator initialized: {self.orchestration_config.orchestrator_name}"
+        )
+
+    @property
+    def orchestration_status(self) -> OrchestrationStatus:
+        """Get current orchestration status."""
+        return self._orchestration_status
+
+    @property
+    def is_orchestrating(self) -> bool:
+        """Check if orchestrator is actively coordinating workflows."""
+        return self._orchestration_status == OrchestrationStatus.ORCHESTRATING
+
+    async def _initialize_component(self) -> None:
+        """Initialize orchestration components."""
+        # Initialize service manager
+        await self.service_manager.initialize()
+
+        # Setup component registry
+        await self.component_registry.register(
+            self.service_manager,
+            name="service_manager",
+            type_hint=ServiceManager
+        )
+
+        # Start metrics collection if enabled
+        if self.orchestration_config.enable_detailed_metrics:
+            self._metrics_task = asyncio.create_task(self._metrics_collection_loop())
+
+        self.orchestration_metrics.components_managed += 1
+        self.logger.info("Session orchestrator component initialized")
+
+    async def _shutdown_component(self) -> None:
+        """Cleanup orchestration resources."""
+        # Stop metrics collection
+        if self._metrics_task and not self._metrics_task.done():
+            self._metrics_task.cancel()
+            try:
+                await self._metrics_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel all running workflows
+        await self.cancel_all_workflows()
+
+        # Shutdown managed components
+        await self.service_manager.shutdown()
+        await self.component_registry.clear()
+
+        # Clear internal state
+        self._workflows.clear()
+        self._workflow_states.clear()
+        self._workflow_tasks.clear()
+        self._step_results.clear()
+
+        self.logger.info("Session orchestrator component shutdown complete")
+
+    async def register_workflow(self, workflow: WorkflowDefinition) -> bool:
+        """Register a workflow definition.
+
+        Args:
+            workflow: Workflow definition to register.
+
+        Returns:
+            True if workflow registered successfully.
+
+        Raises:
+            OrchestrationError: If workflow registration fails.
+        """
+        async def _register_operation() -> bool:
+            if workflow.workflow_id in self._workflows:
+                raise OrchestrationError(
+                    f"Workflow {workflow.workflow_id} already registered"
+                )
+
+            # Validate workflow definition
+            await self._validate_workflow(workflow)
+
+            # Register workflow
+            self._workflows[workflow.workflow_id] = workflow
+            self._workflow_states[workflow.workflow_id] = WorkflowStatus.PENDING
+
+            self.logger.info(f"Registered workflow: {workflow.name} ({workflow.workflow_id})")
+            return True
+
+        return await self.execute_operation(
+            f"register_workflow_{workflow.workflow_id}",
+            _register_operation
+        )
+
+    async def execute_workflow(
+        self,
+        workflow_id: WorkflowId,
+        context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Execute a registered workflow.
+
+        Args:
+            workflow_id: ID of the workflow to execute.
+            context: Optional context data for workflow execution.
+
+        Returns:
+            Workflow execution results.
+
+        Raises:
+            WorkflowError: If workflow execution fails.
+            OrchestrationError: If workflow not found.
+        """
+        async def _execute_operation() -> dict[str, Any]:
+            if workflow_id not in self._workflows:
+                raise OrchestrationError(f"Workflow {workflow_id} not found")
+
+            workflow = self._workflows[workflow_id]
+            execution_context = context or {}
+
+            self.logger.info(f"Starting workflow execution: {workflow.name}")
+            self._orchestration_status = OrchestrationStatus.ORCHESTRATING
+            self._workflow_states[workflow_id] = WorkflowStatus.RUNNING
+
+            workflow_start_time = time.time()
+
+            try:
+                # Execute workflow steps
+                results = await self._execute_workflow_steps(workflow, execution_context)
+
+                # Mark workflow as completed
+                self._workflow_states[workflow_id] = WorkflowStatus.COMPLETED
+
+                # Call success callback if defined
+                if workflow.on_success:
+                    await workflow.on_success(results, execution_context)
+
+                # Update metrics
+                workflow_time = time.time() - workflow_start_time
+                self.orchestration_metrics.workflows_completed += 1
+                self.orchestration_metrics.total_orchestration_time += workflow_time
+                self._update_average_workflow_time()
+
+                self.logger.info(
+                    f"Workflow {workflow.name} completed in {workflow_time:.2f}s"
+                )
+
+                return {
+                    "workflow_id": workflow_id,
+                    "status": "completed",
+                    "execution_time": workflow_time,
+                    "results": results,
+                    "context": execution_context,
+                }
+
+            except Exception as e:
+                # Mark workflow as failed
+                self._workflow_states[workflow_id] = WorkflowStatus.FAILED
+                self.orchestration_metrics.workflows_failed += 1
+
+                # Call failure callback if defined
+                if workflow.on_failure:
+                    try:
+                        await workflow.on_failure(e, execution_context)
+                    except Exception as callback_error:
+                        self.logger.error(f"Failure callback error: {callback_error}")
+
+                self.logger.error(f"Workflow {workflow.name} failed: {e}")
+                raise WorkflowError(f"Workflow execution failed: {e}") from e
+
+            finally:
+                self._orchestration_status = OrchestrationStatus.COMPLETING
+
+        self.orchestration_metrics.workflows_started += 1
+        return await self.execute_operation(
+            f"execute_workflow_{workflow_id}",
+            _execute_operation
+        )
+
+    async def coordinate_components(
+        self,
+        coordination_plan: dict[str, Any],
+        timeout: float | None = None
+    ) -> bool:
+        """Coordinate multiple components for complex operations.
+
+        Args:
+            coordination_plan: Plan defining component coordination steps.
+            timeout: Coordination timeout. Uses config default if None.
+
+        Returns:
+            True if coordination completed successfully.
+
+        Raises:
+            CoordinationError: If coordination fails.
+        """
+        async def _coordinate_operation() -> bool:
+            coordination_timeout = timeout or self.orchestration_config.coordination_timeout
+            self.logger.info("Starting component coordination")
+
+            self._orchestration_status = OrchestrationStatus.COORDINATING
+            coordination_start_time = time.time()
+
+            try:
+                # Execute coordination steps
+                coordination_tasks = []
+
+                for step_name, step_config in coordination_plan.items():
+                    task = asyncio.create_task(
+                        self._execute_coordination_step(step_name, step_config)
+                    )
+                    coordination_tasks.append(task)
+
+                # Wait for all coordination steps with timeout
+                await asyncio.wait_for(
+                    asyncio.gather(*coordination_tasks),
+                    timeout=coordination_timeout
+                )
+
+                # Update metrics
+                coordination_time = time.time() - coordination_start_time
+                self.orchestration_metrics.coordination_events += 1
+
+                self.logger.info(
+                    f"Component coordination completed in {coordination_time:.2f}s"
+                )
+                return True
+
+            except asyncio.TimeoutError as e:
+                raise CoordinationError(
+                    f"Coordination timed out after {coordination_timeout}s"
+                ) from e
+
+            except Exception as e:
+                raise CoordinationError(f"Coordination failed: {e}") from e
+
+            finally:
+                self._orchestration_status = OrchestrationStatus.ORCHESTRATING
+
+        return await self.execute_operation(
+            "coordinate_components",
+            _coordinate_operation
+        )
+
+    async def get_workflow_status(self, workflow_id: WorkflowId) -> dict[str, Any]:
+        """Get status of a workflow.
+
+        Args:
+            workflow_id: ID of the workflow.
+
+        Returns:
+            Workflow status information.
+        """
+        if workflow_id not in self._workflows:
+            return {"error": f"Workflow {workflow_id} not found"}
+
+        workflow = self._workflows[workflow_id]
+        status = self._workflow_states.get(workflow_id, WorkflowStatus.PENDING)
+
+        return {
+            "workflow_id": workflow_id,
+            "name": workflow.name,
+            "status": status.name,
+            "steps_count": len(workflow.steps),
+            "is_running": workflow_id in self._workflow_tasks,
+            "metadata": workflow.metadata,
+        }
+
+    async def list_workflows(self) -> dict[WorkflowId, dict[str, Any]]:
+        """List all registered workflows with their status.
+
+        Returns:
+            Dictionary mapping workflow IDs to their status info.
+        """
+        workflows_info = {}
+
+        for workflow_id, workflow in self._workflows.items():
+            workflows_info[workflow_id] = await self.get_workflow_status(workflow_id)
+
+        return workflows_info
+
+    async def cancel_workflow(self, workflow_id: WorkflowId) -> bool:
+        """Cancel a running workflow.
+
+        Args:
+            workflow_id: ID of the workflow to cancel.
+
+        Returns:
+            True if workflow cancelled successfully.
+        """
+        if workflow_id not in self._workflow_tasks:
+            self.logger.warning(f"No running task found for workflow {workflow_id}")
+            return True
+
+        task = self._workflow_tasks[workflow_id]
+        task.cancel()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        # Update state
+        self._workflow_states[workflow_id] = WorkflowStatus.CANCELLED
+        del self._workflow_tasks[workflow_id]
+
+        self.logger.info(f"Cancelled workflow: {workflow_id}")
+        return True
+
+    async def cancel_all_workflows(self) -> bool:
+        """Cancel all running workflows.
+
+        Returns:
+            True if all workflows cancelled successfully.
+        """
+        workflow_ids = list(self._workflow_tasks.keys())
+
+        for workflow_id in workflow_ids:
+            await self.cancel_workflow(workflow_id)
+
+        return len(self._workflow_tasks) == 0
+
+    # Helper methods
+
+    async def _validate_workflow(self, workflow: WorkflowDefinition) -> None:
+        """Validate workflow definition.
+
+        Args:
+            workflow: Workflow to validate.
+
+        Raises:
+            OrchestrationError: If workflow validation fails.
+        """
+        if not workflow.steps:
+            raise OrchestrationError("Workflow must have at least one step")
+
+        # Check for duplicate step IDs
+        step_ids = [step.step_id for step in workflow.steps]
+        if len(step_ids) != len(set(step_ids)):
+            raise OrchestrationError("Workflow contains duplicate step IDs")
+
+        # Validate step dependencies
+        for step in workflow.steps:
+            for dep_id in step.dependencies:
+                if dep_id not in step_ids:
+                    raise OrchestrationError(
+                        f"Step {step.step_id} has invalid dependency: {dep_id}"
+                    )
+
+    async def _execute_workflow_steps(
+        self,
+        workflow: WorkflowDefinition,
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute all steps in a workflow.
+
+        Args:
+            workflow: Workflow definition.
+            context: Execution context.
+
+        Returns:
+            Workflow execution results.
+        """
+        # Build step dependency graph
+        step_graph = self._build_step_dependency_graph(workflow.steps)
+
+        # Execute steps in dependency order
+        completed_steps = set()
+        step_results = {}
+
+        # Create tasks for all steps
+        step_tasks: dict[str, asyncio.Task] = {}
+
+        # Start steps that have no dependencies
+        for step in workflow.steps:
+            if not step.dependencies:
+                step_tasks[step.step_id] = asyncio.create_task(
+                    self._execute_workflow_step(step, context, step_results)
+                )
+
+        # Process steps as dependencies are met
+        while len(completed_steps) < len(workflow.steps):
+            # Wait for at least one step to complete
+            if step_tasks:
+                done_tasks, _ = await asyncio.wait(
+                    step_tasks.values(),
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                # Process completed steps
+                for task in done_tasks:
+                    # Find step ID for this task
+                    completed_step_id = None
+                    for step_id, step_task in step_tasks.items():
+                        if step_task == task:
+                            completed_step_id = step_id
+                            break
+
+                    if completed_step_id:
+                        try:
+                            result = await task
+                            step_results[completed_step_id] = result
+                            completed_steps.add(completed_step_id)
+                            del step_tasks[completed_step_id]
+
+                            self.orchestration_metrics.steps_executed += 1
+
+                        except Exception as e:
+                            self.orchestration_metrics.steps_failed += 1
+                            self.logger.error(f"Step {completed_step_id} failed: {e}")
+                            raise WorkflowError(f"Step {completed_step_id} failed: {e}") from e
+
+                # Start new steps whose dependencies are now met
+                for step in workflow.steps:
+                    if (step.step_id not in completed_steps and
+                        step.step_id not in step_tasks and
+                        all(dep in completed_steps for dep in step.dependencies)):
+
+                        step_tasks[step.step_id] = asyncio.create_task(
+                            self._execute_workflow_step(step, context, step_results)
+                        )
+            else:
+                # No tasks running - this shouldn't happen with valid workflow
+                break
+
+        return step_results
+
+    async def _execute_workflow_step(
+        self,
+        step: WorkflowStep,
+        context: dict[str, Any],
+        previous_results: dict[str, Any]
+    ) -> Any:
+        """Execute a single workflow step.
+
+        Args:
+            step: Step definition.
+            context: Execution context.
+            previous_results: Results from previous steps.
+
+        Returns:
+            Step execution result.
+        """
+        async with self._step_semaphore:
+            self.logger.debug(f"Executing step: {step.name} ({step.step_id})")
+
+            # Check required services are available
+            for service_name in step.required_services:
+                service = await self.service_manager.get_service(service_name)
+                if not service:
+                    raise WorkflowError(
+                        f"Required service {service_name} not available for step {step.step_id}"
+                    )
+
+            # Execute step with retry logic
+            for attempt in range(step.retry_attempts):
+                try:
+                    # Execute step operation with timeout
+                    result = await asyncio.wait_for(
+                        step.operation(context, previous_results),
+                        timeout=step.timeout
+                    )
+
+                    self.logger.debug(f"Step {step.name} completed successfully")
+                    return result
+
+                except Exception as e:
+                    if attempt < step.retry_attempts - 1:
+                        self.logger.warning(
+                            f"Step {step.name} failed (attempt {attempt + 1}), retrying: {e}"
+                        )
+                        await asyncio.sleep(step.retry_delay)
+                    else:
+                        self.logger.error(f"Step {step.name} failed after all retries: {e}")
+                        raise
+
+    async def _execute_coordination_step(
+        self,
+        step_name: str,
+        step_config: dict[str, Any]
+    ) -> Any:
+        """Execute a coordination step.
+
+        Args:
+            step_name: Name of the coordination step.
+            step_config: Configuration for the step.
+
+        Returns:
+            Step execution result.
+        """
+        self.logger.debug(f"Executing coordination step: {step_name}")
+
+        # This would be implemented based on specific coordination requirements
+        # For example: synchronizing components, waiting for events, etc.
+
+        # Placeholder implementation
+        operation_type = step_config.get("type", "sync")
+
+        if operation_type == "sync":
+            # Synchronization operation
+            components = step_config.get("components", [])
+            await self._sync_components(components)
+
+        elif operation_type == "wait":
+            # Wait operation
+            event_name = step_config.get("event")
+            timeout = step_config.get("timeout", 30.0)
+            await self._wait_for_event(event_name, timeout)
+
+        return {"step": step_name, "status": "completed"}
+
+    async def _sync_components(self, component_names: list[str]) -> None:
+        """Synchronize multiple components."""
+        sync_tasks = []
+
+        for component_name in component_names:
+            component = await self.component_registry.get(object, component_name)
+            if hasattr(component, "sync"):
+                sync_tasks.append(component.sync())
+
+        if sync_tasks:
+            await asyncio.gather(*sync_tasks)
+
+    async def _wait_for_event(self, event_name: str, timeout: float) -> None:
+        """Wait for a coordination event."""
+        if event_name not in self._coordination_events:
+            self._coordination_events[event_name] = asyncio.Event()
+
+        await asyncio.wait_for(
+            self._coordination_events[event_name].wait(),
+            timeout=timeout
+        )
+
+    def _build_step_dependency_graph(self, steps: list[WorkflowStep]) -> dict[str, list[str]]:
+        """Build dependency graph for workflow steps."""
+        graph = {}
+        for step in steps:
+            graph[step.step_id] = step.dependencies
+        return graph
+
+    def _update_average_workflow_time(self) -> None:
+        """Update average workflow execution time."""
+        if self.orchestration_metrics.workflows_completed > 0:
+            self.orchestration_metrics.average_workflow_time = (
+                self.orchestration_metrics.total_orchestration_time /
+                self.orchestration_metrics.workflows_completed
+            )
+
+    async def _metrics_collection_loop(self) -> None:
+        """Collect orchestration metrics periodically."""
+        while not self._shutdown_event.is_set():
+            try:
+                # Update component count
+                self.orchestration_metrics.components_managed = len(
+                    await self.component_registry.find_all()
+                )
+
+                # Wait for next collection cycle
+                await asyncio.sleep(self.orchestration_config.metrics_collection_interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error in metrics collection: {e}")
+
+    def get_orchestration_metrics(self) -> dict[str, Any]:
+        """Get orchestration performance metrics.
+
+        Returns:
+            Dictionary containing orchestration metrics.
+        """
+        base_metrics = self.get_metrics()
+
+        orchestration_metrics = {
+            "orchestration_id": self.orchestration_metrics.orchestration_id,
+            "orchestrator_name": self.orchestration_config.orchestrator_name,
+            "orchestration_status": self._orchestration_status.name,
+            "workflows_registered": len(self._workflows),
+            "workflows_running": len(self._workflow_tasks),
+            "workflows_started": self.orchestration_metrics.workflows_started,
+            "workflows_completed": self.orchestration_metrics.workflows_completed,
+            "workflows_failed": self.orchestration_metrics.workflows_failed,
+            "workflow_success_rate": (
+                self.orchestration_metrics.workflows_completed /
+                max(self.orchestration_metrics.workflows_started, 1)
+            ),
+            "steps_executed": self.orchestration_metrics.steps_executed,
+            "steps_failed": self.orchestration_metrics.steps_failed,
+            "step_success_rate": (
+                (self.orchestration_metrics.steps_executed - self.orchestration_metrics.steps_failed) /
+                max(self.orchestration_metrics.steps_executed, 1)
+            ),
+            "average_workflow_time": self.orchestration_metrics.average_workflow_time,
+            "components_managed": self.orchestration_metrics.components_managed,
+            "coordination_events": self.orchestration_metrics.coordination_events,
+            "recovery_attempts": self.orchestration_metrics.recovery_attempts,
+        }
+
+        # Merge with base component metrics
+        return {**base_metrics, **orchestration_metrics}
+
+
+# Example implementation template
+class {OrchestratorName}(SessionOrchestrator[{ReturnType}]):
+    """
+    {Orchestrator description and purpose}
+
+    Atomic design level: ORGANISM
+    Dependencies: Atoms + Molecules ({atom_dependencies}, {molecule_dependencies})
+    """
+
+    def __init__(
+        self,
+        config: OrchestrationConfig | None = None,
+        **component_dependencies: Any
+    ) -> None:
+        """Initialize the {orchestrator_name}."""
+        orchestration_config = config or OrchestrationConfig(
+            orchestrator_name="{orchestrator_name}",
+            {additional_config}
+        )
+        super().__init__(orchestration_config, **component_dependencies)
+
+        # Add orchestrator-specific initialization here
+
+    async def {primary_orchestration_operation}(self, {parameters}) -> {ReturnType}:
+        """Primary orchestration operation.
+
+        Args:
+            {parameter_docs}
+
+        Returns:
+            {return_description}
+
+        Raises:
+            OrchestrationError: If orchestration fails.
+        """
+        async def _orchestration_operation() -> {ReturnType}:
+            # Implement orchestration-specific logic here
+            # Example:
+            # workflow = self._build_workflow(request_data)
+            # await self.register_workflow(workflow)
+            # result = await self.execute_workflow(workflow.workflow_id, context)
+            # return result["results"]
+            pass
+
+        return await self.execute_operation(
+            "{primary_orchestration_operation}",
+            _orchestration_operation
+        )

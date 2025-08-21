@@ -1,0 +1,310 @@
+name: Dependency Management
+
+on:
+  push:
+    branches: [ main, master, develop, development ]
+    paths:
+      - 'pyproject.toml'
+      - 'pixi.lock'
+  pull_request:
+    branches: [ main, master, develop, development ]
+    paths:
+      - 'pyproject.toml'
+      - 'pixi.lock'
+  schedule:
+    # Check dependencies weekly on Mondays at 4 AM UTC
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+env:
+  PYTHONNOUSERSITE: 1
+  PIXI_VERSION: v0.50.2
+
+jobs:
+  # =============================================================================
+  # PIXI-ONLY COMPLIANCE VALIDATION
+  # =============================================================================
+  pixi-compliance:
+    name: PIXI-Only Compliance Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify PIXI-only compliance
+        run: |
+          echo "🔍 Checking PIXI-only compliance..."
+
+          # Check for forbidden pip files
+          FORBIDDEN_FILES=(
+            "requirements.txt"
+            "requirements-dev.txt"
+            "requirements-test.txt"
+            "requirements/*.txt"
+            "dev-requirements.txt"
+            "test-requirements.txt"
+            "setup.py"
+            "setup.cfg"
+            "Pipfile"
+            "Pipfile.lock"
+            "poetry.lock"
+            "environment.yml"
+            "conda.yml"
+          )
+
+          VIOLATIONS=0
+          for file in "${FORBIDDEN_FILES[@]}"; do
+            if ls $file 2>/dev/null; then
+              echo "❌ VIOLATION: Found $file (violates PIXI-only policy)"
+              VIOLATIONS=$((VIOLATIONS + 1))
+            fi
+          done
+
+          if [ $VIOLATIONS -eq 0 ]; then
+            echo "✅ PIXI-only compliance verified - no pip/conda files found"
+          else
+            echo "❌ PIXI-only compliance FAILED - $VIOLATIONS violations found"
+            exit 1
+          fi
+
+      - name: Validate pyproject.toml structure
+        run: |
+          echo "📋 Validating pyproject.toml structure..."
+
+          # Check required PIXI sections
+          REQUIRED_SECTIONS=(
+            "[tool.pixi.project]"
+            "[tool.pixi.dependencies]"
+            "[tool.pixi.environments]"
+            "[tool.pixi.tasks]"
+          )
+
+          MISSING_SECTIONS=0
+          for section in "${REQUIRED_SECTIONS[@]}"; do
+            if ! grep -q "$section" pyproject.toml; then
+              echo "❌ MISSING: $section not found in pyproject.toml"
+              MISSING_SECTIONS=$((MISSING_SECTIONS + 1))
+            else
+              echo "✅ FOUND: $section"
+            fi
+          done
+
+          if [ $MISSING_SECTIONS -eq 0 ]; then
+            echo "✅ pyproject.toml structure is valid"
+          else
+            echo "❌ pyproject.toml structure INVALID - $MISSING_SECTIONS missing sections"
+            exit 1
+          fi
+
+  # =============================================================================
+  # DEPENDENCY VULNERABILITY SCANNING
+  # =============================================================================
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.14
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+          environments: ci
+
+      - name: Install dependencies
+        run: pixi install -e ci
+
+      - name: Run dependency vulnerability check
+        run: pixi run -e ci check-deps
+
+      - name: Generate dependency report
+        run: |
+          echo "📦 DEPENDENCY REPORT" > dependency-report.txt
+          echo "===================" >> dependency-report.txt
+          echo "" >> dependency-report.txt
+          echo "PIXI Environment List:" >> dependency-report.txt
+          pixi list >> dependency-report.txt
+          echo "" >> dependency-report.txt
+          echo "PIXI Info:" >> dependency-report.txt
+          pixi info >> dependency-report.txt
+
+      - name: Upload dependency report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-report
+          path: dependency-report.txt
+          retention-days: 30
+
+  # =============================================================================
+  # PIXI LOCK FILE VALIDATION
+  # =============================================================================
+  lock-validation:
+    name: PIXI Lock File Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.14
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: false  # Don't use cache to verify clean install
+
+      - name: Validate lock file integrity
+        run: |
+          echo "🔒 Validating PIXI lock file..."
+
+          # Check if lock file exists
+          if [ ! -f "pixi.lock" ]; then
+            echo "❌ pixi.lock file not found"
+            exit 1
+          fi
+
+          # Validate lock file is up to date
+          pixi install --locked --manifest-path pyproject.toml
+
+          echo "✅ PIXI lock file is valid and up to date"
+
+      - name: Check for lock file consistency
+        run: |
+          echo "🔄 Checking lock file consistency..."
+
+          # Generate new lock and compare
+          cp pixi.lock pixi.lock.backup
+          pixi install --manifest-path pyproject.toml
+
+          if diff pixi.lock pixi.lock.backup > /dev/null; then
+            echo "✅ Lock file is consistent"
+          else
+            echo "❌ Lock file is inconsistent - may need regeneration"
+            echo "Differences found:"
+            diff pixi.lock pixi.lock.backup || true
+            exit 1
+          fi
+
+  # =============================================================================
+  # MULTI-PLATFORM DEPENDENCY CHECK
+  # =============================================================================
+  multi-platform-deps:
+    name: Multi-Platform Dependencies (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.14
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+
+      - name: Install dependencies (CI environment)
+        run: pixi install -e ci
+
+      - name: Verify dependency installation
+        run: |
+          echo "📦 Verifying dependencies on ${{ matrix.os }}..."
+          pixi list -e ci
+
+      - name: Test basic functionality
+        run: pixi run -e ci python -c "import sys; print(f'Python {sys.version} on {sys.platform}')"
+
+  # =============================================================================
+  # DEPENDENCY UPDATE CHECK
+  # =============================================================================
+  update-check:
+    name: Dependency Update Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PIXI
+        uses: prefix-dev/setup-pixi@v0.8.14
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          cache: true
+
+      - name: Check for available updates
+        run: |
+          echo "🔄 Checking for dependency updates..."
+
+          # Install current dependencies
+          pixi install --manifest-path pyproject.toml
+
+          # Generate update report
+          echo "DEPENDENCY UPDATE REPORT" > update-report.txt
+          echo "========================" >> update-report.txt
+          echo "Generated: $(date)" >> update-report.txt
+          echo "" >> update-report.txt
+
+          # List current versions
+          echo "Current Dependency Versions:" >> update-report.txt
+          pixi list >> update-report.txt
+
+          echo "" >> update-report.txt
+          echo "Update check completed. Review manually for potential updates." >> update-report.txt
+
+      - name: Upload update report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-update-report
+          path: update-report.txt
+          retention-days: 30
+
+  # =============================================================================
+  # DEPENDENCY AUDIT SUMMARY
+  # =============================================================================
+  dependency-summary:
+    name: Dependency Management Summary
+    runs-on: ubuntu-latest
+    needs: [pixi-compliance, dependency-scan, lock-validation, multi-platform-deps]
+    if: always()
+
+    steps:
+      - name: Dependency Management Summary
+        run: |
+          echo "📦 DEPENDENCY MANAGEMENT SUMMARY"
+          echo "================================"
+
+          if [[ "${{ needs.pixi-compliance.result }}" == "success" ]]; then
+            echo "✅ PIXI-Only Compliance: VERIFIED"
+          else
+            echo "❌ PIXI-Only Compliance: VIOLATIONS FOUND"
+          fi
+
+          if [[ "${{ needs.dependency-scan.result }}" == "success" ]]; then
+            echo "✅ Vulnerability Scan: CLEAN"
+          else
+            echo "❌ Vulnerability Scan: ISSUES FOUND"
+          fi
+
+          if [[ "${{ needs.lock-validation.result }}" == "success" ]]; then
+            echo "✅ Lock File Validation: PASSED"
+          else
+            echo "❌ Lock File Validation: FAILED"
+          fi
+
+          if [[ "${{ needs.multi-platform-deps.result }}" == "success" ]]; then
+            echo "✅ Multi-Platform Support: VERIFIED"
+          else
+            echo "❌ Multi-Platform Support: ISSUES FOUND"
+          fi
+
+          echo ""
+          echo "💡 Dependency management follows PIXI-only standards."
+          echo "🔒 All dependencies are managed through conda-forge ecosystem."
+          echo "📋 Regular dependency audits ensure security and compliance."

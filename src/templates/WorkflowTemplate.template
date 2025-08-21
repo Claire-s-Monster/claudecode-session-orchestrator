@@ -1,0 +1,967 @@
+"""
+{template_name}: Workflow template for session orchestration layouts.
+
+Atomic design level: TEMPLATE
+Dependencies: Atoms + Molecules + Organisms ({atom_dependencies}, {molecule_dependencies}, {organism_dependencies})
+Purpose: {template_purpose}
+Thread-safe: Yes
+Async patterns: Full async/await support with layout orchestration
+Python version: 3.12+
+"""
+
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any, TypeVar, Generic, Protocol
+import logging
+from uuid import uuid4
+
+# Import atoms, molecules, and organisms (allowed dependencies)
+from ..atoms.BaseComponent import BaseComponent, ComponentConfig, ComponentError
+from ..molecules.ServiceManager import ServiceManager, ServiceConfig
+from ..molecules.component_registry import ComponentRegistry
+from ..organisms.SessionOrchestrator import (
+    SessionOrchestrator,
+    OrchestrationConfig,
+    WorkflowDefinition,
+    WorkflowStep
+)
+
+
+# Type definitions and protocols
+T = TypeVar("T")
+TemplateId = str
+LayoutId = str
+
+
+class LayoutRegion(Protocol):
+    """Protocol for layout regions."""
+
+    async def render(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Render the layout region."""
+        ...
+
+    async def validate(self, context: dict[str, Any]) -> bool:
+        """Validate the layout region."""
+        ...
+
+
+class TemplateStatus(Enum):
+    """Status enumeration for template lifecycle."""
+
+    DRAFT = auto()
+    VALIDATED = auto()
+    ACTIVE = auto()
+    RENDERING = auto()
+    COMPLETED = auto()
+    ERROR = auto()
+    DEPRECATED = auto()
+
+
+class LayoutError(Exception):
+    """Base exception for layout-level errors."""
+    pass
+
+
+class TemplateError(Exception):
+    """Base exception for template-level errors."""
+    pass
+
+
+class RenderError(TemplateError):
+    """Raised when template rendering fails."""
+    pass
+
+
+class ValidationError(TemplateError):
+    """Raised when template validation fails."""
+    pass
+
+
+@dataclass
+class LayoutRegionDefinition:
+    """Definition of a layout region."""
+
+    region_id: str
+    name: str
+    region_type: str  # header, content, sidebar, footer, etc.
+    component_type: type
+    configuration: dict[str, Any] = field(default_factory=dict)
+    dependencies: list[str] = field(default_factory=list)
+    constraints: dict[str, Any] = field(default_factory=dict)
+    render_order: int = 100
+    required: bool = True
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class LayoutDefinition:
+    """Definition of a complete layout template."""
+
+    layout_id: LayoutId
+    name: str
+    description: str
+    layout_type: str  # dashboard, workflow, report, etc.
+    regions: list[LayoutRegionDefinition]
+    global_configuration: dict[str, Any] = field(default_factory=dict)
+    layout_constraints: dict[str, Any] = field(default_factory=dict)
+    render_strategy: str = "parallel"  # parallel, sequential, hybrid
+    cache_strategy: str = "none"  # none, memory, persistent
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TemplateConfig(ComponentConfig):
+    """Configuration for workflow templates."""
+
+    # Template identification
+    template_id: str = field(default_factory=lambda: str(uuid4()))
+    template_name: str = "{template_name}"
+    template_version: str = "1.0.0"
+
+    # Rendering settings
+    max_concurrent_renders: int = 5
+    render_timeout: float = 120.0  # 2 minutes
+    max_region_render_time: float = 30.0
+
+    # Layout management
+    max_layouts: int = 50
+    layout_cache_size: int = 100
+    layout_validation_timeout: float = 10.0
+
+    # Performance settings
+    enable_caching: bool = True
+    cache_ttl: float = 300.0  # 5 minutes
+    enable_parallel_rendering: bool = True
+
+    # Error handling
+    enable_graceful_degradation: bool = True
+    fallback_layout: str | None = None
+    max_retry_attempts: int = 2
+
+    def __post_init__(self) -> None:
+        """Validate template configuration."""
+        super().__post_init__()
+        if self.max_concurrent_renders <= 0:
+            raise ValueError("max_concurrent_renders must be positive")
+        if self.render_timeout <= 0:
+            raise ValueError("render_timeout must be positive")
+
+
+@dataclass
+class TemplateMetrics:
+    """Template-specific metrics."""
+
+    template_id: str
+    layouts_registered: int = 0
+    renders_started: int = 0
+    renders_completed: int = 0
+    renders_failed: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    total_render_time: float = 0.0
+    average_render_time: float = 0.0
+    regions_rendered: int = 0
+    validation_attempts: int = 0
+    validation_failures: int = 0
+
+
+class WorkflowTemplate(BaseComponent[dict[str, Any]], Generic[T]):
+    """Workflow template for orchestrating complex layout rendering.
+
+    Orchestrates:
+    - Multi-region layout rendering with dependencies
+    - Component lifecycle within templates
+    - Caching and performance optimization
+    - Error recovery and graceful degradation
+    - Template validation and composition
+    - Thread-safe operations with async patterns
+    """
+
+    def __init__(
+        self,
+        config: TemplateConfig | None = None,
+        orchestrator: SessionOrchestrator | None = None,
+        service_manager: ServiceManager | None = None,
+        component_registry: ComponentRegistry | None = None
+    ) -> None:
+        """Initialize the workflow template.
+
+        Args:
+            config: Template configuration. Uses defaults if None.
+            orchestrator: Session orchestrator instance. Creates new if None.
+            service_manager: Service manager instance. Creates new if None.
+            component_registry: Component registry. Creates new if None.
+        """
+        super().__init__(config)
+        self.template_config = config or TemplateConfig()
+
+        # Dependency injection (organisms, molecules, atoms)
+        self.orchestrator = orchestrator or SessionOrchestrator()
+        self.service_manager = service_manager or ServiceManager()
+        self.component_registry = component_registry or ComponentRegistry()
+
+        # Template state
+        self._template_status = TemplateStatus.DRAFT
+        self._layouts: dict[LayoutId, LayoutDefinition] = {}
+        self._layout_cache: dict[str, dict[str, Any]] = {}
+        self._render_cache: dict[str, tuple[dict[str, Any], float]] = {}
+
+        # Rendering coordination
+        self._render_semaphore = asyncio.Semaphore(
+            self.template_config.max_concurrent_renders
+        )
+        self._region_locks: dict[str, asyncio.Lock] = {}
+
+        # Performance tracking
+        self.template_metrics = TemplateMetrics(
+            template_id=self.template_config.template_id
+        )
+
+        self.logger.info(f"WorkflowTemplate initialized: {self.template_config.template_name}")
+
+    @property
+    def template_status(self) -> TemplateStatus:
+        """Get current template status."""
+        return self._template_status
+
+    @property
+    def is_active(self) -> bool:
+        """Check if template is active and ready for rendering."""
+        return self._template_status == TemplateStatus.ACTIVE
+
+    async def _initialize_component(self) -> None:
+        """Initialize template components."""
+        # Initialize orchestrator
+        await self.orchestrator.initialize()
+
+        # Initialize service manager
+        await self.service_manager.initialize()
+
+        # Register components
+        await self.component_registry.register(
+            self.orchestrator,
+            name="orchestrator",
+            type_hint=SessionOrchestrator
+        )
+        await self.component_registry.register(
+            self.service_manager,
+            name="service_manager",
+            type_hint=ServiceManager
+        )
+
+        self._template_status = TemplateStatus.VALIDATED
+        self.logger.info("Workflow template component initialized")
+
+    async def _shutdown_component(self) -> None:
+        """Cleanup template resources."""
+        # Clear caches
+        self._layout_cache.clear()
+        self._render_cache.clear()
+
+        # Shutdown managed components
+        await self.orchestrator.shutdown()
+        await self.service_manager.shutdown()
+        await self.component_registry.clear()
+
+        # Clear internal state
+        self._layouts.clear()
+        self._region_locks.clear()
+
+        self.logger.info("Workflow template component shutdown complete")
+
+    async def register_layout(self, layout: LayoutDefinition) -> bool:
+        """Register a layout definition.
+
+        Args:
+            layout: Layout definition to register.
+
+        Returns:
+            True if layout registered successfully.
+
+        Raises:
+            TemplateError: If layout registration fails.
+        """
+        async def _register_operation() -> bool:
+            if layout.layout_id in self._layouts:
+                raise TemplateError(f"Layout {layout.layout_id} already registered")
+
+            # Validate layout definition
+            await self._validate_layout(layout)
+
+            # Register layout
+            self._layouts[layout.layout_id] = layout
+            self.template_metrics.layouts_registered += 1
+
+            # Activate template if this is the first layout
+            if self._template_status == TemplateStatus.VALIDATED:
+                self._template_status = TemplateStatus.ACTIVE
+
+            self.logger.info(f"Registered layout: {layout.name} ({layout.layout_id})")
+            return True
+
+        return await self.execute_operation(
+            f"register_layout_{layout.layout_id}",
+            _register_operation
+        )
+
+    async def render_layout(
+        self,
+        layout_id: LayoutId,
+        context: dict[str, Any] | None = None,
+        use_cache: bool | None = None
+    ) -> dict[str, Any]:
+        """Render a registered layout.
+
+        Args:
+            layout_id: ID of the layout to render.
+            context: Optional context data for rendering.
+            use_cache: Whether to use caching. Uses config default if None.
+
+        Returns:
+            Rendered layout data.
+
+        Raises:
+            RenderError: If layout rendering fails.
+            TemplateError: If layout not found.
+        """
+        async def _render_operation() -> dict[str, Any]:
+            if layout_id not in self._layouts:
+                raise TemplateError(f"Layout {layout_id} not found")
+
+            layout = self._layouts[layout_id]
+            render_context = context or {}
+            cache_key = self._generate_cache_key(layout_id, render_context)
+            use_caching = use_cache if use_cache is not None else self.template_config.enable_caching
+
+            # Check cache first
+            if use_caching and cache_key in self._render_cache:
+                cached_result, cached_time = self._render_cache[cache_key]
+                if asyncio.get_event_loop().time() - cached_time < self.template_config.cache_ttl:
+                    self.template_metrics.cache_hits += 1
+                    self.logger.debug(f"Cache hit for layout {layout.name}")
+                    return cached_result
+
+            self.template_metrics.cache_misses += 1
+            self.logger.info(f"Starting layout render: {layout.name}")
+            self._template_status = TemplateStatus.RENDERING
+
+            render_start_time = asyncio.get_event_loop().time()
+
+            try:
+                # Render layout regions
+                render_result = await self._render_layout_regions(layout, render_context)
+
+                # Cache result if caching enabled
+                if use_caching:
+                    self._render_cache[cache_key] = (render_result, asyncio.get_event_loop().time())
+
+                    # Cleanup old cache entries
+                    await self._cleanup_cache()
+
+                # Update metrics
+                render_time = asyncio.get_event_loop().time() - render_start_time
+                self.template_metrics.renders_completed += 1
+                self.template_metrics.total_render_time += render_time
+                self._update_average_render_time()
+
+                self._template_status = TemplateStatus.ACTIVE
+
+                self.logger.info(f"Layout {layout.name} rendered in {render_time:.2f}s")
+
+                return {
+                    "layout_id": layout_id,
+                    "layout_name": layout.name,
+                    "render_time": render_time,
+                    "regions": render_result,
+                    "context": render_context,
+                    "cached": False,
+                }
+
+            except Exception as e:
+                self.template_metrics.renders_failed += 1
+                self._template_status = TemplateStatus.ERROR
+
+                # Try graceful degradation if enabled
+                if self.template_config.enable_graceful_degradation:
+                    fallback_result = await self._render_fallback_layout(
+                        layout, render_context, str(e)
+                    )
+                    if fallback_result:
+                        return fallback_result
+
+                self.logger.error(f"Layout {layout.name} render failed: {e}")
+                raise RenderError(f"Layout rendering failed: {e}") from e
+
+        self.template_metrics.renders_started += 1
+        return await self.execute_operation(
+            f"render_layout_{layout_id}",
+            _render_operation
+        )
+
+    async def compose_template(
+        self,
+        template_definition: dict[str, Any],
+        context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Compose a complete template from multiple layouts.
+
+        Args:
+            template_definition: Definition of template composition.
+            context: Optional context data for composition.
+
+        Returns:
+            Composed template data.
+
+        Raises:
+            TemplateError: If template composition fails.
+        """
+        async def _compose_operation() -> dict[str, Any]:
+            composition_context = context or {}
+            self.logger.info("Starting template composition")
+
+            composition_start_time = asyncio.get_event_loop().time()
+            composed_regions = {}
+
+            try:
+                # Build composition workflow
+                workflow_steps = []
+
+                for region_name, region_config in template_definition.items():
+                    layout_id = region_config.get("layout_id")
+                    if not layout_id:
+                        continue
+
+                    # Create workflow step for this region
+                    step = WorkflowStep(
+                        step_id=f"render_{region_name}",
+                        name=f"Render {region_name}",
+                        operation=self._create_region_render_operation(
+                            layout_id, region_config, region_name
+                        ),
+                        timeout=self.template_config.max_region_render_time,
+                        dependencies=region_config.get("dependencies", []),
+                        metadata={"region_name": region_name, "layout_id": layout_id}
+                    )
+                    workflow_steps.append(step)
+
+                # Create and execute composition workflow
+                composition_workflow = WorkflowDefinition(
+                    workflow_id=f"compose_{self.template_config.template_id}_{int(asyncio.get_event_loop().time())}",
+                    name=f"Template Composition - {self.template_config.template_name}",
+                    description="Compose complete template from multiple layouts",
+                    steps=workflow_steps,
+                    max_parallel_steps=self.template_config.max_concurrent_renders,
+                    timeout=self.template_config.render_timeout
+                )
+
+                # Register and execute workflow
+                await self.orchestrator.register_workflow(composition_workflow)
+                workflow_result = await self.orchestrator.execute_workflow(
+                    composition_workflow.workflow_id,
+                    composition_context
+                )
+
+                # Extract composed regions from workflow results
+                for step_id, step_result in workflow_result["results"].items():
+                    if step_id.startswith("render_"):
+                        region_name = step_id.replace("render_", "")
+                        composed_regions[region_name] = step_result
+
+                composition_time = asyncio.get_event_loop().time() - composition_start_time
+
+                return {
+                    "template_id": self.template_config.template_id,
+                    "template_name": self.template_config.template_name,
+                    "composition_time": composition_time,
+                    "regions": composed_regions,
+                    "context": composition_context,
+                    "workflow_id": composition_workflow.workflow_id,
+                }
+
+            except Exception as e:
+                self.logger.error(f"Template composition failed: {e}")
+                raise TemplateError(f"Template composition failed: {e}") from e
+
+        return await self.execute_operation(
+            "compose_template",
+            _compose_operation
+        )
+
+    async def validate_template(
+        self,
+        layout_id: LayoutId,
+        context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Validate a template layout.
+
+        Args:
+            layout_id: ID of the layout to validate.
+            context: Optional context data for validation.
+
+        Returns:
+            Validation results.
+
+        Raises:
+            ValidationError: If validation fails.
+        """
+        async def _validate_operation() -> dict[str, Any]:
+            if layout_id not in self._layouts:
+                raise ValidationError(f"Layout {layout_id} not found")
+
+            layout = self._layouts[layout_id]
+            validation_context = context or {}
+
+            self.logger.info(f"Validating layout: {layout.name}")
+            self.template_metrics.validation_attempts += 1
+
+            validation_results = {
+                "layout_id": layout_id,
+                "layout_name": layout.name,
+                "valid": True,
+                "errors": [],
+                "warnings": [],
+                "region_validations": {}
+            }
+
+            try:
+                # Validate layout structure
+                await self._validate_layout(layout)
+
+                # Validate each region
+                for region in layout.regions:
+                    region_validation = await self._validate_region(region, validation_context)
+                    validation_results["region_validations"][region.region_id] = region_validation
+
+                    if not region_validation["valid"]:
+                        validation_results["valid"] = False
+                        validation_results["errors"].extend(region_validation["errors"])
+
+                if validation_results["valid"]:
+                    self.logger.info(f"Layout {layout.name} validation passed")
+                else:
+                    self.template_metrics.validation_failures += 1
+                    self.logger.warning(f"Layout {layout.name} validation failed")
+
+                return validation_results
+
+            except Exception as e:
+                self.template_metrics.validation_failures += 1
+                self.logger.error(f"Layout {layout.name} validation error: {e}")
+                raise ValidationError(f"Validation failed: {e}") from e
+
+        return await self.execute_operation(
+            f"validate_template_{layout_id}",
+            _validate_operation
+        )
+
+    async def list_layouts(self) -> dict[LayoutId, dict[str, Any]]:
+        """List all registered layouts.
+
+        Returns:
+            Dictionary mapping layout IDs to their information.
+        """
+        layouts_info = {}
+
+        for layout_id, layout in self._layouts.items():
+            layouts_info[layout_id] = {
+                "layout_id": layout_id,
+                "name": layout.name,
+                "layout_type": layout.layout_type,
+                "regions_count": len(layout.regions),
+                "render_strategy": layout.render_strategy,
+                "cache_strategy": layout.cache_strategy,
+                "metadata": layout.metadata,
+            }
+
+        return layouts_info
+
+    # Helper methods
+
+    async def _validate_layout(self, layout: LayoutDefinition) -> None:
+        """Validate layout definition.
+
+        Args:
+            layout: Layout to validate.
+
+        Raises:
+            ValidationError: If layout validation fails.
+        """
+        if not layout.regions:
+            raise ValidationError("Layout must have at least one region")
+
+        # Check for duplicate region IDs
+        region_ids = [region.region_id for region in layout.regions]
+        if len(region_ids) != len(set(region_ids)):
+            raise ValidationError("Layout contains duplicate region IDs")
+
+        # Validate region dependencies
+        for region in layout.regions:
+            for dep_id in region.dependencies:
+                if dep_id not in region_ids:
+                    raise ValidationError(
+                        f"Region {region.region_id} has invalid dependency: {dep_id}"
+                    )
+
+    async def _render_layout_regions(
+        self,
+        layout: LayoutDefinition,
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Render all regions in a layout.
+
+        Args:
+            layout: Layout definition.
+            context: Rendering context.
+
+        Returns:
+            Rendered regions data.
+        """
+        if layout.render_strategy == "sequential":
+            return await self._render_regions_sequential(layout, context)
+        elif layout.render_strategy == "parallel":
+            return await self._render_regions_parallel(layout, context)
+        else:
+            # Hybrid strategy
+            return await self._render_regions_hybrid(layout, context)
+
+    async def _render_regions_parallel(
+        self,
+        layout: LayoutDefinition,
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Render regions in parallel."""
+        async with self._render_semaphore:
+            render_tasks = {}
+
+            # Sort regions by render order
+            sorted_regions = sorted(layout.regions, key=lambda r: r.render_order)
+
+            for region in sorted_regions:
+                render_tasks[region.region_id] = asyncio.create_task(
+                    self._render_region(region, context)
+                )
+
+            # Wait for all renders to complete
+            rendered_regions = {}
+            for region_id, task in render_tasks.items():
+                try:
+                    rendered_regions[region_id] = await task
+                    self.template_metrics.regions_rendered += 1
+                except Exception as e:
+                    self.logger.error(f"Region {region_id} render failed: {e}")
+                    if layout.regions[0].required:  # Find region by id
+                        raise
+                    # Continue with optional regions
+                    rendered_regions[region_id] = {"error": str(e), "rendered": False}
+
+            return rendered_regions
+
+    async def _render_regions_sequential(
+        self,
+        layout: LayoutDefinition,
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Render regions sequentially."""
+        rendered_regions = {}
+
+        # Sort regions by render order
+        sorted_regions = sorted(layout.regions, key=lambda r: r.render_order)
+
+        for region in sorted_regions:
+            try:
+                rendered_regions[region.region_id] = await self._render_region(region, context)
+                self.template_metrics.regions_rendered += 1
+            except Exception as e:
+                self.logger.error(f"Region {region.region_id} render failed: {e}")
+                if region.required:
+                    raise
+                rendered_regions[region.region_id] = {"error": str(e), "rendered": False}
+
+        return rendered_regions
+
+    async def _render_regions_hybrid(
+        self,
+        layout: LayoutDefinition,
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Render regions using hybrid strategy (parallel with dependencies)."""
+        # This would implement a more sophisticated rendering strategy
+        # For now, fallback to parallel
+        return await self._render_regions_parallel(layout, context)
+
+    async def _render_region(
+        self,
+        region: LayoutRegionDefinition,
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Render a single region.
+
+        Args:
+            region: Region definition.
+            context: Rendering context.
+
+        Returns:
+            Rendered region data.
+        """
+        # Get or create region lock
+        if region.region_id not in self._region_locks:
+            self._region_locks[region.region_id] = asyncio.Lock()
+
+        async with self._region_locks[region.region_id]:
+            self.logger.debug(f"Rendering region: {region.name} ({region.region_id})")
+
+            try:
+                # Get component instance for this region
+                component = await self._get_region_component(region)
+
+                # Prepare region context
+                region_context = {**context, **region.configuration}
+
+                # Render the region
+                if hasattr(component, "render"):
+                    result = await component.render(region_context)
+                else:
+                    # Default render behavior
+                    result = {
+                        "region_id": region.region_id,
+                        "region_name": region.name,
+                        "region_type": region.region_type,
+                        "rendered": True,
+                        "data": region_context,
+                    }
+
+                self.logger.debug(f"Region {region.name} rendered successfully")
+                return result
+
+            except Exception as e:
+                self.logger.error(f"Region {region.name} render failed: {e}")
+                raise RenderError(f"Region {region.name} render failed: {e}") from e
+
+    async def _get_region_component(self, region: LayoutRegionDefinition) -> Any:
+        """Get component instance for a region."""
+        # Try to get from component registry first
+        try:
+            return await self.component_registry.get(
+                region.component_type,
+                name=region.region_id
+            )
+        except Exception:
+            # Create new component instance
+            component = region.component_type()
+
+            # Register for future use
+            await self.component_registry.register(
+                component,
+                name=region.region_id,
+                type_hint=region.component_type
+            )
+
+            return component
+
+    async def _validate_region(
+        self,
+        region: LayoutRegionDefinition,
+        context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Validate a single region."""
+        validation_result = {
+            "region_id": region.region_id,
+            "region_name": region.name,
+            "valid": True,
+            "errors": [],
+            "warnings": []
+        }
+
+        try:
+            # Get component for validation
+            component = await self._get_region_component(region)
+
+            # Validate region if component supports it
+            if hasattr(component, "validate"):
+                region_context = {**context, **region.configuration}
+                is_valid = await component.validate(region_context)
+                if not is_valid:
+                    validation_result["valid"] = False
+                    validation_result["errors"].append("Component validation failed")
+
+        except Exception as e:
+            validation_result["valid"] = False
+            validation_result["errors"].append(f"Region validation error: {e}")
+
+        return validation_result
+
+    async def _render_fallback_layout(
+        self,
+        layout: LayoutDefinition,
+        context: dict[str, Any],
+        error: str
+    ) -> dict[str, Any] | None:
+        """Render fallback layout on error."""
+        if not self.template_config.fallback_layout:
+            return None
+
+        try:
+            fallback_layout_id = self.template_config.fallback_layout
+            if fallback_layout_id in self._layouts:
+                self.logger.info(f"Rendering fallback layout: {fallback_layout_id}")
+                return await self.render_layout(fallback_layout_id, context, use_cache=False)
+        except Exception as e:
+            self.logger.error(f"Fallback layout render failed: {e}")
+
+        return None
+
+    def _create_region_render_operation(
+        self,
+        layout_id: LayoutId,
+        region_config: dict[str, Any],
+        region_name: str
+    ) -> Callable:
+        """Create a render operation for workflow step."""
+        async def render_operation(context: dict[str, Any], previous_results: dict[str, Any]) -> dict[str, Any]:
+            render_result = await self.render_layout(layout_id, context)
+            return {
+                "region_name": region_name,
+                "layout_id": layout_id,
+                "render_result": render_result
+            }
+
+        return render_operation
+
+    def _generate_cache_key(self, layout_id: LayoutId, context: dict[str, Any]) -> str:
+        """Generate cache key for layout rendering."""
+        import hashlib
+        import json
+
+        # Create deterministic hash of layout_id and context
+        cache_data = {
+            "layout_id": layout_id,
+            "context": context
+        }
+        cache_string = json.dumps(cache_data, sort_keys=True)
+        return hashlib.md5(cache_string.encode()).hexdigest()
+
+    async def _cleanup_cache(self) -> None:
+        """Cleanup old cache entries."""
+        current_time = asyncio.get_event_loop().time()
+        ttl = self.template_config.cache_ttl
+
+        # Remove expired entries
+        expired_keys = [
+            key for key, (_, cached_time) in self._render_cache.items()
+            if current_time - cached_time > ttl
+        ]
+
+        for key in expired_keys:
+            del self._render_cache[key]
+
+        # Limit cache size
+        if len(self._render_cache) > self.template_config.layout_cache_size:
+            # Remove oldest entries
+            sorted_cache = sorted(
+                self._render_cache.items(),
+                key=lambda x: x[1][1]  # Sort by cached_time
+            )
+
+            items_to_remove = len(self._render_cache) - self.template_config.layout_cache_size
+            for i in range(items_to_remove):
+                key, _ = sorted_cache[i]
+                del self._render_cache[key]
+
+    def _update_average_render_time(self) -> None:
+        """Update average render time."""
+        if self.template_metrics.renders_completed > 0:
+            self.template_metrics.average_render_time = (
+                self.template_metrics.total_render_time /
+                self.template_metrics.renders_completed
+            )
+
+    def get_template_metrics(self) -> dict[str, Any]:
+        """Get template performance metrics.
+
+        Returns:
+            Dictionary containing template metrics.
+        """
+        base_metrics = self.get_metrics()
+
+        template_metrics = {
+            "template_id": self.template_metrics.template_id,
+            "template_name": self.template_config.template_name,
+            "template_status": self._template_status.name,
+            "layouts_registered": self.template_metrics.layouts_registered,
+            "renders_started": self.template_metrics.renders_started,
+            "renders_completed": self.template_metrics.renders_completed,
+            "renders_failed": self.template_metrics.renders_failed,
+            "render_success_rate": (
+                self.template_metrics.renders_completed /
+                max(self.template_metrics.renders_started, 1)
+            ),
+            "average_render_time": self.template_metrics.average_render_time,
+            "regions_rendered": self.template_metrics.regions_rendered,
+            "cache_hits": self.template_metrics.cache_hits,
+            "cache_misses": self.template_metrics.cache_misses,
+            "cache_hit_rate": (
+                self.template_metrics.cache_hits /
+                max(self.template_metrics.cache_hits + self.template_metrics.cache_misses, 1)
+            ),
+            "validation_attempts": self.template_metrics.validation_attempts,
+            "validation_failures": self.template_metrics.validation_failures,
+            "validation_success_rate": (
+                (self.template_metrics.validation_attempts - self.template_metrics.validation_failures) /
+                max(self.template_metrics.validation_attempts, 1)
+            ),
+        }
+
+        # Merge with base component metrics
+        return {**base_metrics, **template_metrics}
+
+
+# Example implementation template
+class {TemplateName}(WorkflowTemplate[{ReturnType}]):
+    """
+    {Template description and purpose}
+
+    Atomic design level: TEMPLATE
+    Dependencies: Atoms + Molecules + Organisms ({dependencies})
+    """
+
+    def __init__(
+        self,
+        config: TemplateConfig | None = None,
+        **component_dependencies: Any
+    ) -> None:
+        """Initialize the {template_name}."""
+        template_config = config or TemplateConfig(
+            template_name="{template_name}",
+            {additional_config}
+        )
+        super().__init__(template_config, **component_dependencies)
+
+        # Add template-specific initialization here
+
+    async def {primary_template_operation}(self, {parameters}) -> {ReturnType}:
+        """Primary template operation.
+
+        Args:
+            {parameter_docs}
+
+        Returns:
+            {return_description}
+
+        Raises:
+            TemplateError: If template operation fails.
+        """
+        async def _template_operation() -> {ReturnType}:
+            # Implement template-specific logic here
+            # Example:
+            # layout = self._build_layout(layout_spec)
+            # await self.register_layout(layout)
+            # result = await self.render_layout(layout.layout_id, context)
+            # return result
+            pass
+
+        return await self.execute_operation(
+            "{primary_template_operation}",
+            _template_operation
+        )

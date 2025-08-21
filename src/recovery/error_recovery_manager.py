@@ -1,5 +1,4 @@
-"""
-Error Recovery Manager
+"""Error Recovery Manager.
 
 Central coordinator for error handling and recovery across all sub-agent operations.
 Implements the four-level error classification framework and manages recovery workflows.
@@ -25,7 +24,7 @@ from typing import Any
 
 
 class ErrorSeverity(Enum):
-    """Error severity levels based on framework classification"""
+    """Error severity levels based on framework classification."""
 
     LOW = "low"  # Tool failures - recoverable
     MEDIUM = "medium"  # Context transfer failures - manageable
@@ -34,7 +33,7 @@ class ErrorSeverity(Enum):
 
 
 class ErrorType(Enum):
-    """Error types aligned with framework classification"""
+    """Error types aligned with framework classification."""
 
     MCP_TOOL_FAILURE = "mcp_tool_failure"
     CONTEXT_TRANSFER_FAILURE = "context_transfer_failure"
@@ -46,7 +45,7 @@ class ErrorType(Enum):
 
 @dataclass
 class ErrorContext:
-    """Context information for error recovery"""
+    """Context information for error recovery."""
 
     error_id: str
     error_type: ErrorType
@@ -62,7 +61,7 @@ class ErrorContext:
 
 @dataclass
 class RecoveryResult:
-    """Result of error recovery attempt"""
+    """Result of error recovery attempt."""
 
     success: bool
     recovery_method: str
@@ -73,14 +72,19 @@ class RecoveryResult:
 
 
 class ErrorRecoveryManager:
-    """
-    Central manager for error recovery and resilience.
+    """Central manager for error recovery and resilience.
 
-    Provides comprehensive error handling with graceful degradation,
-    state preservation, and systematic recovery workflows.
+    Provides comprehensive error handling with graceful degradation, state preservation,
+    and systematic recovery workflows.
     """
 
-    def __init__(self, project_root: Path, config: dict[str, Any] = None):
+    def __init__(self, project_root: Path, config: dict[str, Any] | None = None):
+        """Initialize the error recovery manager.
+
+        Args:
+            project_root: Root directory of the project
+            config: Optional configuration dictionary for recovery settings
+        """
         self.project_root = Path(project_root)
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
@@ -115,8 +119,8 @@ class ErrorRecoveryManager:
         # Initialize recovery directories
         self._setup_recovery_infrastructure()
 
-    def _setup_recovery_infrastructure(self):
-        """Initialize recovery directory structure and logging"""
+    def _setup_recovery_infrastructure(self) -> None:
+        """Initialize recovery directory structure and logging."""
         recovery_dir = self.project_root / ".recovery"
         recovery_dir.mkdir(exist_ok=True)
 
@@ -135,20 +139,16 @@ class ErrorRecoveryManager:
         agent_type: str,
         operation: str,
         error_message: str,
-        context: dict[str, Any] = None,
+        context: dict[str, Any] | None = None,  # noqa: ARG002
     ) -> RecoveryResult:
-        """
-        Main entry point for error handling and recovery.
+        """Handle error and attempt recovery.
 
-        Args:
-            error_type: Type of error encountered
-            agent_type: Sub-agent that encountered the error
-            operation: Operation being performed when error occurred
-            error_message: Detailed error message
-            context: Additional context information
+        Args:     error_type: Type of error encountered     agent_type: Sub-agent that
+        encountered the error     operation: Operation being performed when error
+        occurred     error_message: Detailed error message     context: Additional
+        context information
 
-        Returns:
-            RecoveryResult with recovery outcome and recommendations
+        Returns:     RecoveryResult with recovery outcome and recommendations
         """
         error_id = f"err_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{len(self.recovery_history)}"
 
@@ -169,13 +169,15 @@ class ErrorRecoveryManager:
         )
 
         self.logger.error(
-            f"Error detected: {error_id} - {error_type.value} in {agent_type}"
+            f"Error detected: {error_id} - {error_type.value} in {agent_type}",
         )
         self.recovery_stats["total_errors"] += 1
 
         # Create checkpoint before recovery
         checkpoint_id = await self._create_checkpoint(
-            agent_type, operation, error_ctx.error_id
+            agent_type,
+            operation,
+            error_ctx.error_id,
         )
 
         try:
@@ -208,9 +210,11 @@ class ErrorRecoveryManager:
             self.active_recoveries.pop(error_id, None)
 
     async def _execute_recovery(
-        self, error_ctx: ErrorContext, checkpoint_id: str
+        self,
+        error_ctx: ErrorContext,
+        checkpoint_id: str,
     ) -> RecoveryResult:
-        """Execute recovery based on error type and severity"""
+        """Execute recovery based on error type and severity."""
         start_time = datetime.now()
 
         try:
@@ -233,7 +237,7 @@ class ErrorRecoveryManager:
                 ErrorSeverity.CRITICAL,
             ]:
                 self.logger.warning(
-                    f"Recovery failed for {error_ctx.severity.value} error - initiating escalation"
+                    f"Recovery failed for {error_ctx.severity.value} error - initiating escalation",
                 )
                 result = await self._escalate_error(error_ctx, checkpoint_id)
 
@@ -254,7 +258,7 @@ class ErrorRecoveryManager:
             )
 
     async def _handle_mcp_error(self, error_ctx: ErrorContext) -> RecoveryResult:
-        """Handle MCP tool failures with strategic fallback"""
+        """Handle MCP tool failures with strategic fallback."""
         self.logger.info(f"Handling MCP error: {error_ctx.error_id}")
 
         # Check strategic Bash allowance (5% target)
@@ -273,19 +277,18 @@ class ErrorRecoveryManager:
                 side_effects=["bash_usage_incremented"],
                 recommendation="MCP limitation bypassed with strategic Bash usage",
             )
-        else:
-            # Escalate to main context
-            return RecoveryResult(
-                success=False,
-                recovery_method="mcp_fallback_limit_exceeded",
-                time_taken=0.0,
-                state_preserved=True,
-                side_effects=["escalation_required"],
-                recommendation="Strategic Bash limit exceeded - escalate to main context",
-            )
+        # Escalate to main context
+        return RecoveryResult(
+            success=False,
+            recovery_method="mcp_fallback_limit_exceeded",
+            time_taken=0.0,
+            state_preserved=True,
+            side_effects=["escalation_required"],
+            recommendation="Strategic Bash limit exceeded - escalate to main context",
+        )
 
     async def _handle_context_error(self, error_ctx: ErrorContext) -> RecoveryResult:
-        """Handle context transfer failures with compression"""
+        """Handle context transfer failures with compression."""
         self.logger.info(f"Handling context error: {error_ctx.error_id}")
 
         # Attempt progressive compression
@@ -313,7 +316,7 @@ class ErrorRecoveryManager:
         )
 
     async def _handle_quality_error(self, error_ctx: ErrorContext) -> RecoveryResult:
-        """Handle quality gate failures with emergency fixes"""
+        """Handle quality gate failures with emergency fixes."""
         self.logger.info(f"Handling quality error: {error_ctx.error_id}")
 
         # Attempt emergency quality fixes
@@ -328,18 +331,17 @@ class ErrorRecoveryManager:
                 side_effects=["automatic_fixes_applied"],
                 recommendation="Quality gates restored with emergency fixes",
             )
-        else:
-            return RecoveryResult(
-                success=False,
-                recovery_method="quality_fixes_failed",
-                time_taken=1.0,
-                state_preserved=True,
-                side_effects=["quality_degradation"],
-                recommendation="STOP: Quality gates failing - manual investigation required",
-            )
+        return RecoveryResult(
+            success=False,
+            recovery_method="quality_fixes_failed",
+            time_taken=1.0,
+            state_preserved=True,
+            side_effects=["quality_degradation"],
+            recommendation="STOP: Quality gates failing - manual investigation required",
+        )
 
     async def _handle_system_error(self, error_ctx: ErrorContext) -> RecoveryResult:
-        """Handle system failures with emergency protocols"""
+        """Handle system failures with emergency protocols."""
         self.logger.critical(f"Handling system error: {error_ctx.error_id}")
 
         # Activate emergency mode
@@ -357,19 +359,18 @@ class ErrorRecoveryManager:
                 side_effects=["emergency_mode_activated"],
                 recommendation="System integrity verified - emergency mode active",
             )
-        else:
-            await self._emergency_stop()
-            return RecoveryResult(
-                success=False,
-                recovery_method="system_halt",
-                time_taken=0.0,
-                state_preserved=False,
-                side_effects=["system_halt"],
-                recommendation="CRITICAL: System integrity compromised - manual recovery required",
-            )
+        await self._emergency_stop()
+        return RecoveryResult(
+            success=False,
+            recovery_method="system_halt",
+            time_taken=0.0,
+            state_preserved=False,
+            side_effects=["system_halt"],
+            recommendation="CRITICAL: System integrity compromised - manual recovery required",
+        )
 
     async def _handle_unknown_error(self, error_ctx: ErrorContext) -> RecoveryResult:
-        """Handle unknown errors with graceful degradation"""
+        """Handle unknown errors with graceful degradation."""
         self.logger.warning(f"Handling unknown error: {error_ctx.error_id}")
 
         return RecoveryResult(
@@ -382,9 +383,11 @@ class ErrorRecoveryManager:
         )
 
     async def _escalate_error(
-        self, error_ctx: ErrorContext, checkpoint_id: str
+        self,
+        error_ctx: ErrorContext,
+        checkpoint_id: str,
     ) -> RecoveryResult:
-        """Escalate error to higher-level recovery mechanisms"""
+        """Escalate error to higher-level recovery mechanisms."""
         self.logger.warning(f"Escalating error {error_ctx.error_id}")
 
         if error_ctx.severity == ErrorSeverity.CRITICAL:
@@ -419,9 +422,11 @@ class ErrorRecoveryManager:
         return await self._systematic_recovery(error_ctx, checkpoint_id)
 
     async def _systematic_recovery(
-        self, error_ctx: ErrorContext, checkpoint_id: str
+        self,
+        error_ctx: ErrorContext,
+        checkpoint_id: str,
     ) -> RecoveryResult:
-        """Systematic recovery for high-severity errors"""
+        """Systematic recovery for high-severity errors."""
         self.logger.info(f"Initiating systematic recovery for {error_ctx.error_id}")
 
         # Step 1: Preserve current state
@@ -463,11 +468,13 @@ class ErrorRecoveryManager:
         )
 
     async def _emergency_recovery(
-        self, error_ctx: ErrorContext, system_error: str
+        self,
+        error_ctx: ErrorContext,
+        system_error: str,
     ) -> RecoveryResult:
-        """Emergency recovery when recovery system itself fails"""
+        """Emergency recovery when recovery system itself fails."""
         self.logger.critical(
-            f"EMERGENCY RECOVERY: {error_ctx.error_id} - {system_error}"
+            f"EMERGENCY RECOVERY: {error_ctx.error_id} - {system_error}",
         )
 
         # Activate emergency mode
@@ -482,8 +489,8 @@ class ErrorRecoveryManager:
             recommendation="EMERGENCY: Recovery system failure - immediate manual intervention required",
         )
 
-    async def _activate_emergency_mode(self):
-        """Activate emergency mode with minimal operations"""
+    async def _activate_emergency_mode(self) -> None:
+        """Activate emergency mode with minimal operations."""
         self.emergency_mode = True
         self.logger.critical("EMERGENCY MODE ACTIVATED")
 
@@ -493,8 +500,8 @@ class ErrorRecoveryManager:
         # Disable non-essential operations
         await self._disable_non_essential_operations()
 
-    async def _emergency_stop(self):
-        """Complete system halt for critical failures"""
+    async def _emergency_stop(self) -> None:
+        """Complete system halt for critical failures."""
         self.logger.critical("EMERGENCY STOP - SYSTEM HALT")
         self.recovery_stats["emergency_stops"] += 1
 
@@ -508,82 +515,85 @@ class ErrorRecoveryManager:
     # Placeholder methods that will be enhanced with proper implementations
 
     async def _create_checkpoint(
-        self, agent_type: str, operation: str, error_id: str
+        self,
+        agent_type: str,
+        operation: str,  # noqa: ARG002
+        error_id: str,  # noqa: ARG002
     ) -> str:
-        """Create operation checkpoint for recovery"""
+        """Create operation checkpoint for recovery."""
         checkpoint_id = f"ckpt_{agent_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.logger.info(f"Creating checkpoint: {checkpoint_id}")
         return checkpoint_id
 
     async def _restore_checkpoint(self, checkpoint_id: str) -> bool:
-        """Restore from checkpoint"""
+        """Restore from checkpoint."""
         self.logger.info(f"Restoring from checkpoint: {checkpoint_id}")
         return True  # Placeholder
 
-    async def _create_state_snapshot(self, snapshot_id: str):
-        """Create state snapshot"""
+    async def _create_state_snapshot(self, snapshot_id: str) -> None:
+        """Create state snapshot."""
         self.logger.info(f"Creating state snapshot: {snapshot_id}")
 
-    async def _create_emergency_backup(self, backup_type: str = "emergency"):
-        """Create emergency backup of current state"""
+    async def _create_emergency_backup(self, backup_type: str = "emergency") -> None:
+        """Create emergency backup of current state."""
         try:
             backup_id = f"{backup_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             self.logger.info(f"Emergency backup created: {backup_id}")
         except Exception as e:
             self.logger.error(f"Failed to create emergency backup: {e}")
 
-    async def _disable_non_essential_operations(self):
-        """Disable non-essential operations during emergency mode"""
+    async def _disable_non_essential_operations(self) -> None:
+        """Disable non-essential operations during emergency mode."""
         self.logger.info("Non-essential operations disabled")
 
     async def _attempt_context_compression(self, level: str) -> bool:
-        """Attempt context compression at specified level"""
+        """Attempt context compression at specified level."""
         self.logger.info(f"Attempting {level} context compression")
         return True  # Placeholder - will be implemented with actual compression logic
 
     async def _attempt_emergency_quality_fixes(self) -> bool:
-        """Attempt automated quality fixes"""
+        """Attempt automated quality fixes."""
         self.logger.info("Attempting emergency quality fixes")
         return True  # Placeholder - will be implemented with actual fix logic
 
     async def _check_repository_integrity(self) -> bool:
-        """Check repository integrity"""
+        """Check repository integrity."""
         self.logger.info("Checking repository integrity")
         return True  # Placeholder - will be implemented with git fsck and validation
 
     async def _attempt_emergency_recovery(self, error_ctx: ErrorContext) -> bool:
-        """Attempt emergency recovery for critical errors"""
+        """Attempt emergency recovery for critical errors."""
         self.logger.info(f"Attempting emergency recovery for {error_ctx.error_id}")
         return True  # Placeholder
 
     def _classify_error_severity(
-        self, error_type: ErrorType, error_message: str
+        self,
+        error_type: ErrorType,
+        error_message: str,
     ) -> ErrorSeverity:
-        """Classify error severity based on type and message content"""
+        """Classify error severity based on type and message content."""
         if error_type == ErrorType.SYSTEM_FAILURE:
             return ErrorSeverity.CRITICAL
-        elif error_type == ErrorType.QUALITY_GATE_FAILURE:
+        if error_type == ErrorType.QUALITY_GATE_FAILURE:
             return ErrorSeverity.HIGH
-        elif error_type == ErrorType.CONTEXT_TRANSFER_FAILURE:
+        if error_type == ErrorType.CONTEXT_TRANSFER_FAILURE:
             return ErrorSeverity.MEDIUM
-        elif error_type == ErrorType.MCP_TOOL_FAILURE:
+        if error_type == ErrorType.MCP_TOOL_FAILURE:
             return ErrorSeverity.LOW
-        else:
-            # Analyze error message for severity indicators
-            critical_keywords = ["corruption", "integrity", "security", "critical"]
-            high_keywords = ["failure", "violation", "error"]
+        # Analyze error message for severity indicators
+        critical_keywords = ["corruption", "integrity", "security", "critical"]
+        high_keywords = ["failure", "violation", "error"]
 
-            error_lower = error_message.lower()
+        error_lower = error_message.lower()
 
-            if any(keyword in error_lower for keyword in critical_keywords):
-                return ErrorSeverity.CRITICAL
-            elif any(keyword in error_lower for keyword in high_keywords):
-                return ErrorSeverity.HIGH
-            else:
-                return ErrorSeverity.MEDIUM
+        if any(keyword in error_lower for keyword in critical_keywords):
+            return ErrorSeverity.CRITICAL
+        if any(keyword in error_lower for keyword in high_keywords):
+            return ErrorSeverity.HIGH
+        return ErrorSeverity.MEDIUM
 
     async def _capture_system_state(self) -> dict[str, Any]:
-        """Capture current system state for error context"""
+        """Capture current system state for error context."""
         try:
             return {
                 "timestamp": datetime.now().isoformat(),
@@ -599,13 +609,13 @@ class ErrorRecoveryManager:
             return {"error": str(e), "timestamp": datetime.now().isoformat()}
 
     def _calculate_bash_usage_ratio(self) -> float:
-        """Calculate current bash usage ratio for MCP compliance"""
+        """Calculate current bash usage ratio for MCP compliance."""
         if self.total_operations == 0:
             return 0.0
         return (self.bash_usage_count / self.total_operations) * 100
 
     async def _get_quality_status(self) -> dict[str, Any]:
-        """Get current quality gate status"""
+        """Get current quality gate status."""
         return {
             "tests_passing": True,  # Placeholder
             "lint_clean": True,  # Placeholder
@@ -613,7 +623,7 @@ class ErrorRecoveryManager:
         }
 
     async def _get_git_status(self) -> dict[str, Any]:
-        """Get current git repository status"""
+        """Get current git repository status."""
         return {
             "clean": True,  # Placeholder
             "branch": "main",  # Placeholder
@@ -621,7 +631,7 @@ class ErrorRecoveryManager:
         }
 
     async def _validate_system_quality(self) -> bool:
-        """Validate system quality after recovery"""
+        """Validate system quality after recovery."""
         try:
             quality_status = await self._get_quality_status()
             return all(
@@ -629,21 +639,24 @@ class ErrorRecoveryManager:
                     quality_status.get("tests_passing", False),
                     quality_status.get("lint_clean", False),
                     quality_status.get("coverage", 0) >= 90,
-                ]
+                ],
             )
         except Exception as e:
             self.logger.error(f"Quality validation failed: {e}")
             return False
 
     async def _generate_error_report(
-        self, error_ctx: ErrorContext, recovery_result: RecoveryResult
-    ):
-        """Generate comprehensive error report"""
+        self,
+        error_ctx: ErrorContext,
+        recovery_result: RecoveryResult,
+    ) -> None:
+        """Generate comprehensive error report."""
         report = {
             "error_context": asdict(error_ctx),
             "recovery_result": asdict(recovery_result),
             "system_recommendations": self._generate_recommendations(
-                error_ctx, recovery_result
+                error_ctx,
+                recovery_result,
             ),
             "generated_at": datetime.now().isoformat(),
         }
@@ -663,23 +676,25 @@ class ErrorRecoveryManager:
             self.logger.error(f"Failed to generate error report: {e}")
 
     def _generate_recommendations(
-        self, error_ctx: ErrorContext, recovery_result: RecoveryResult
+        self,
+        error_ctx: ErrorContext,
+        recovery_result: RecoveryResult,
     ) -> list[str]:
-        """Generate system recommendations based on error and recovery"""
+        """Generate system recommendations based on error and recovery."""
         recommendations = []
 
         if error_ctx.error_type == ErrorType.MCP_TOOL_FAILURE:
             recommendations.append(
-                "Consider documenting MCP limitation for future improvement"
+                "Consider documenting MCP limitation for future improvement",
             )
             recommendations.append(
-                "Review strategic Bash usage to ensure 5% compliance"
+                "Review strategic Bash usage to ensure 5% compliance",
             )
 
         if error_ctx.severity == ErrorSeverity.HIGH:
             recommendations.append("Investigate root cause to prevent recurrence")
             recommendations.append(
-                "Consider implementing additional preventive measures"
+                "Consider implementing additional preventive measures",
             )
 
         if not recovery_result.success:
@@ -689,7 +704,7 @@ class ErrorRecoveryManager:
         return recommendations
 
     def get_recovery_statistics(self) -> dict[str, Any]:
-        """Get comprehensive recovery statistics"""
+        """Get comprehensive recovery statistics."""
         return {
             "recovery_stats": self.recovery_stats.copy(),
             "bash_usage_ratio": self._calculate_bash_usage_ratio(),
@@ -708,7 +723,7 @@ class ErrorRecoveryManager:
         }
 
     async def health_check(self) -> dict[str, Any]:
-        """Perform comprehensive health check of recovery system"""
+        """Perform comprehensive health check of recovery system."""
         return {
             "recovery_system_healthy": not self.emergency_mode,
             "error_handlers_ready": True,  # Will be enhanced with actual handler checks

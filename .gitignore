@@ -1,4 +1,35 @@
-# Python 3.12 specific patterns
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+
+# Dependency directories
+node_modules/
+
+# Environment variables
+.env
+!.env.example
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS specific
+.DS_Store
+
+# Task files
+# tasks.json
+# tasks/
+
+# Python specific (3.12+ compatible)
 __pycache__/
 *.py[cod]
 *$py.class
@@ -16,7 +47,6 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
@@ -40,6 +70,62 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+cover/
+
+# Python 3.12+ specific patterns
+*.pyo
+*.pyd
+__pycache__/
+.Python
+*.so.*
+
+# Modern Python tooling
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# PIXI environment (conda-forge based)
+.pixi/
+pixi.lock
+.pixi.toml
+
+# Additional Python environments
+.conda/
+conda-meta/
+.mamba/
+
+# Python build artifacts
+*.whl
+*.tar.gz
+*.zip
+setuptools-*.egg-info/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -53,6 +139,14 @@ ipython_config.py
 
 # pipenv
 Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+.pdm-python
+.pdm-build/
 
 # PEP 582
 __pypackages__/
@@ -72,7 +166,6 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-!.env.example
 
 # Spyder project settings
 .spyderproject
@@ -92,40 +185,47 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Ruff
-.ruff_cache/
+# pytype static type analyzer
+.pytype/
 
-# Pixi package manager
-.pixi/
-pixi.lock
+# Cython debug symbols
+cython_debug/
 
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-dev-debug.log
+# PyCharm
+.idea/
 
-# Dependency directories
-node_modules/
+# Temporary files
+temp_*.txt
+*.tmp
+*.temp
 
-# Editor directories and files
-.idea
-.vscode
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# ClaudeCode Session Orchestrator specific
+# Session data and monitoring files
+session_*.log
+monitoring_*.json
+orchestrator_*.db
+intervention_*.cache
 
-# OS specific
-.DS_Store
+# Agent communication files
+agent_*.sock
+agent_*.pid
 
-# Task files
-# tasks.json
-# tasks/ 
+# Performance monitoring
+*.perf
+performance_*.json
+benchmark_*.log
 
+# Recovery files
+recovery_*.backup
+emergency_*.log
+
+# Development artifacts
+dev_*.txt
+test_*.json
+debug_*.log
+
+# Claude Code session data
+.claude/
 # Development artifacts to exclude from clean branch
 .claude/
 .taskmaster/
@@ -153,5 +253,21 @@ scripts/quality-*.py
 scripts/security-*.py
 scripts/setup-*.py
 scripts/taskmaster-*.py
+# AI-generated documentation (temporary, not for version control)
 ai_docs/
 analyze_function_sizes.py
+
+# Additional agent-generated files to ignore
+commit_*.sh
+temp_*.sh
+*_commit.sh
+*.template
+*-report.md
+git-workflow-report.md
+quality-enforcement-report.md
+task-1.4-completion-report.md
+quality-fixes-summary.md
+.ci-knowledge-base.md
+.bandit
+.aider/
+test_formatting.py

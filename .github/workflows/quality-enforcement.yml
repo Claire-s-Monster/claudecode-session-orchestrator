@@ -10,23 +10,22 @@ jobs:
   quality-gate:
     name: Quality Gate - Zero Tolerance
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.12'
-    
+
     - name: Setup Pixi
-      uses: prefix-dev/setup-pixi@v0.8.12
+      uses: prefix-dev/setup-pixi@v0.8.14
       with:
-        pixi-version: v0.13.0
-    
+        pixi-version: v0.50.2
+
     - name: Install dependencies
-      run: pixi install
-    
+      run: pixi install --manifest-path pyproject.toml
+
     - name: Run Zero-Tolerance Quality Pipeline
       run: pixi run check-all
-EOF < /dev/null

@@ -1,0 +1,87 @@
+# Pre-commit hooks configuration for quality enforcement
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # Unified linting and formatting with ruff (replaces black, isort, flake8)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.7
+    hooks:
+      # Linting
+      - id: ruff
+        args: ["--config", "pyproject.toml", "--fix"]
+      # Formatting
+      - id: ruff-format
+        args: ["--config", "pyproject.toml"]
+
+  # Type checking (aligned with PIXI mypy configuration)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        language_version: python3.12
+        additional_dependencies: [pytest, types-pyyaml]
+        args: ["--config-file=pyproject.toml"]
+        files: ^src/
+
+  # Security checks
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.8
+    hooks:
+      - id: bandit
+        args: ["--configfile", "pyproject.toml"]
+        exclude: tests/
+        files: ^src/
+
+  # Documentation checks
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: ["--convention=google"]
+
+  # Basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: mixed-line-ending
+
+  # PIXI-aligned quality gates (using unified toolchain)
+  - repo: local
+    hooks:
+      # Test execution through PIXI (excluding performance tests)
+      - id: pytest
+        name: pytest-pixi
+        entry: sh -c 'cd "$(git rev-parse --show-toplevel)" && PYTHONDONTWRITEBYTECODE=1 pixi run test --ignore=tests/performance/'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+        files: '^(src/|tests/).*\.py$'
+
+      # Coverage validation through PIXI (temporarily disabled due to performance test conflicts)
+      # - id: coverage
+      #   name: coverage-pixi
+      #   entry: sh -c 'cd "$(git rev-parse --show-toplevel)" && PYTHONDONTWRITEBYTECODE=1 pixi run coverage'
+      #   language: system
+      #   pass_filenames: false
+      #   always_run: true
+      #   stages: [pre-commit]
+      #   files: '^(src/|tests/).*\.py$'
+
+      # Comprehensive quality gates through PIXI
+      - id: quality-gates
+        name: quality-gates-pixi
+        entry: sh -c 'cd "$(git rev-parse --show-toplevel)" && PYTHONDONTWRITEBYTECODE=1 pixi run quality'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+        files: '^(src/|tests/).*\.py$'
