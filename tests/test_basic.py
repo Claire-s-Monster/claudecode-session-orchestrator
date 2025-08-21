@@ -7,7 +7,7 @@ def test_pixi_environment():
     """Test that the PIXI environment is working correctly."""
     import sys
 
-    assert sys.version_info >= (3, 11), "Python version should be >= 3.11"
+    assert sys.version_info >= (3, 12), "Python version should be >= 3.12"
     assert sys.version_info < (3, 13), "Python version should be < 3.13"
 
 

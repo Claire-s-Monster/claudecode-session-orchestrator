@@ -1,101 +1,106 @@
-# \!/usr/bin/env python3
-"""
-Emergency Fix Protocol Script
-Attempts automatic fixes for common quality violations.
+#!/usr/bin/env python3
+"""Emergency Quality Fix Script.
+
+Automatically fixes common quality issues in the codebase.
 """
 
 from pathlib import Path
-import subprocess
+import subprocess  # nosec B404
+import sys
 
 
-def run_fix(name, cmd):
-    """Run an emergency fix command."""
-    print(f"🔧 {name}...")
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+def run_fix_command(name: str, cmd: str) -> bool:
+    """Run a fix command and report results."""
+    print(f"🔧 Running {name}...")
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)  # nosec B602
 
-    if result.returncode == 0:
-        print(f"✅ {name} completed successfully")
-        return True
-    else:
-        print(f"❌ {name} failed:")
-        if result.stdout:
-            print(result.stdout)
-        if result.stderr:
-            print(result.stderr)
+        if result.returncode != 0:
+            print(f"⚠️  {name} encountered issues:")
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr)
+            return False
+        else:
+            print(f"✅ {name} completed successfully")
+            if result.stdout:
+                print(result.stdout)
+            return True
+    except Exception as e:
+        print(f"❌ {name} failed with exception: {e}")
         return False
 
 
-def main():
+def main() -> None:
     """Main emergency fix function."""
-    print("🚨 EMERGENCY FIX PROTOCOL ACTIVATED")
-    print("🔧 Attempting automatic fixes...")
-    print("=" * 50)
+    print("🚨 EMERGENCY QUALITY FIX MODE ACTIVATED")
+    print("=" * 45)
+    print("Attempting to automatically fix common quality issues...")
+    print()
 
-    # Check project type
+    # Check if we're in a Python project
     has_python = any(
         Path(f).exists() for f in ["setup.py", "pyproject.toml", "requirements.txt"]
     ) or any(Path(".").glob("*.py"))
-    has_node = Path("package.json").exists()
 
-    fixes_applied = []
-    fixes_failed = []
+    if not has_python:
+        print("❌ Not a Python project - no fixes to apply")
+        sys.exit(1)
 
-    # Python fixes
-    if has_python:
-        python_fixes = [
-            ("Auto-formatting with Black", "black ."),
-            ("Import sorting with isort", "isort ."),
-            (
-                "Remove unused imports",
-                "autoflake --remove-all-unused-imports --in-place --recursive .",
-            ),
-        ]
+    # Common automatic fixes
+    fixes = [
+        ("Code Formatting", "pixi run format"),
+        ("Import Sorting", "isort src/ scripts/ tests/"),
+        ("Auto-fixable Lint Issues", "pixi run lint-fix"),
+        (
+            "Trailing Whitespace",
+            "python -c \"import pathlib; [p.write_text(p.read_text().rstrip() + '\\n') for p in pathlib.Path('.').glob('**/*.py') if p.is_file()]\"",
+        ),
+    ]
 
-        for name, cmd in python_fixes:
-            if run_fix(name, cmd):
-                fixes_applied.append(name)
-            else:
-                fixes_failed.append(name)
+    fixes_applied = 0
+    successful_fixes = []
 
-    # Node.js fixes
-    if has_node:
-        node_fixes = [
-            ("Prettier formatting", "npx prettier --write ."),
-            ("ESLint auto-fix", "npx eslint . --fix"),
-        ]
+    for name, cmd in fixes:
+        if run_fix_command(name, cmd):
+            fixes_applied += 1
+            successful_fixes.append(name)
+        else:
+            print(f"⚠️  {name} could not be auto-fixed")
 
-        for name, cmd in node_fixes:
-            if run_fix(name, cmd):
-                fixes_applied.append(name)
-            else:
-                fixes_failed.append(name)
+    print()
+    print("=" * 45)
+    print(f"🔧 Emergency fixes completed: {fixes_applied}/{len(fixes)}")
 
-    print("=" * 50)
-    print("🔧 Emergency fix summary:")
-
-    if fixes_applied:
-        print("✅ Fixes applied:")
-        for fix in fixes_applied:
+    if successful_fixes:
+        print("✅ Successfully applied fixes:")
+        for fix in successful_fixes:
             print(f"  - {fix}")
 
-    if fixes_failed:
-        print("❌ Fixes failed:")
-        for fix in fixes_failed:
-            print(f"  - {fix}")
+    if fixes_applied < len(fixes):
+        print("⚠️  Some fixes could not be applied automatically")
+        print("Manual intervention may be required")
 
-    if fixes_applied:
+    # Re-run quality checks if any fixes were applied
+    if fixes_applied > 0:
         print()
         print("🔄 Re-running quality checks...")
-        result = subprocess.run(["python", "scripts/quality-check.py"])
+        result = subprocess.run(["python", "scripts/quality-check.py"])  # nosec B603,B607
 
         if result.returncode == 0:
-            print(r"🎉 Quality checks now passing after emergency fixes\!")
+            print("🎉 Quality checks now passing after emergency fixes!")
         else:
             print("⚠️  Some quality issues remain after emergency fixes")
-            print("📋 Manual intervention may be required")
+            print("Consider running specific tools manually:")
+            print("  - pixi run format")
+            print("  - pixi run lint")
+            print("  - pixi run type-check")
     else:
-        print("⚠️  No automatic fixes were successful")
-        print("📋 Manual intervention required")
+        print("❌ No fixes were successfully applied")
+        print("Manual debugging required")
+
+    sys.exit(0 if fixes_applied > 0 else 1)
 
 
 if __name__ == "__main__":

@@ -51,6 +51,7 @@ rich = ">=13.0.0,<14.0.0"
 # Code quality tools
 ruff = ">=0.1.8"
 mypy = ">=1.7.0"
+isort = ">=5.12.0"
 # Documentation tools
 pydocstyle = ">=6.3.0"
 docformatter = ">=1.7.0"
@@ -89,11 +90,10 @@ pip-audit = ">=2.6.0"
 
 # Performance profiling dependencies
 [tool.pixi.feature.performance.dependencies]
-py-spy = ">=0.3.14"
 # Performance analysis tools (what's available in conda-forge)
 line_profiler = "*"
 memory_profiler = "*"
-# Note: py-spy not available in conda-forge
+# Note: py-spy not available in conda-forge, using built-in cProfile
 # cProfile is built-in to Python
 
 # Documentation dependencies

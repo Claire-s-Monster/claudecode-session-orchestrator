@@ -63,8 +63,8 @@ jobs:
       - name: Ruff format check
         run: pixi run -e ci format-check
 
-      - name: Import sorting check
-        run: pixi run -e ci check-imports
+      - name: Import sorting check (via ruff)
+        run: pixi run -e ci ruff check . --select I
 
   # =============================================================================
   # TYPE CHECKING
